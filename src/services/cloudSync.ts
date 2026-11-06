@@ -28,7 +28,7 @@ const IDB_IMG_STORE = 'images';
 const IDB_MAIN_KEY = 'main_vault_v1';
 const IDB_PASSHASH_KEY = 'owner_passhash_v1';
 const IDB_SNAPSHOTS_KEY = 'history_snapshots_v1';
-const IDB_TIMEOUT_MS = 4500;
+const IDB_TIMEOUT_MS = 8000;
 
 const CLOUD_IMG_PREFIX = 'cloudimg:';
 const CLOUD_CHUNK_PREFIX = 'CLCHUNK1:';
@@ -499,7 +499,10 @@ export async function requestPersistentStorage(): Promise<boolean> {
   return false;
 }
 
+let cachedClosetDbPromise: Promise<IDBDatabase | null> | null = null;
+
 function openBoboClosetDb(): Promise<IDBDatabase | null> {
+  if (cachedClosetDbPromise) return cachedClosetDbPromise;
   const rawPromise = new Promise<IDBDatabase | null>((resolve) => {
     try {
       if (typeof indexedDB === 'undefined') {
@@ -516,14 +519,35 @@ function openBoboClosetDb(): Promise<IDBDatabase | null> {
           db.createObjectStore(IDB_IMG_STORE);
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => {
+          db.close();
+          cachedClosetDbPromise = null;
+        };
+        db.onclose = () => {
+          cachedClosetDbPromise = null;
+        };
+        resolve(db);
+      };
+      req.onerror = () => {
+        cachedClosetDbPromise = null;
+        resolve(null);
+      };
+      req.onblocked = () => {
+        cachedClosetDbPromise = null;
+        resolve(null);
+      };
     } catch {
+      cachedClosetDbPromise = null;
       resolve(null);
     }
   });
-  return withIdbTimeout(rawPromise, null);
+  cachedClosetDbPromise = withIdbTimeout(rawPromise, null).then((db) => {
+    if (!db) cachedClosetDbPromise = null;
+    return db;
+  });
+  return cachedClosetDbPromise;
 }
 
 async function idbPut(storeName: string, key: string, value: unknown): Promise<void> {
@@ -533,20 +557,11 @@ async function idbPut(storeName: string, key: string, value: unknown): Promise<v
     try {
       const tx = db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).put(value, key);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve();
-      };
-      tx.onabort = () => {
-        db.close();
-        resolve();
-      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
     } catch {
-      db.close();
+      cachedClosetDbPromise = null;
       resolve();
     }
   });
@@ -562,15 +577,11 @@ async function idbGet<T>(storeName: string, key: string): Promise<T | null> {
       const req = tx.objectStore(storeName).get(key);
       req.onsuccess = () => {
         const result = (req.result as T) ?? null;
-        db.close();
         resolve(result);
       };
-      req.onerror = () => {
-        db.close();
-        resolve(null);
-      };
+      req.onerror = () => resolve(null);
     } catch {
-      db.close();
+      cachedClosetDbPromise = null;
       resolve(null);
     }
   });
