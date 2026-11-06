@@ -364,7 +364,7 @@ export function generateOutfitProposals(
 }
 
 /**
- * 產生可一鍵複製貼給 Jetski AI 對話框的衣櫥與情境摘要 Prompt
+ * 產生可一鍵複製貼給 AI 助手對話框的衣櫥與情境摘要 Prompt
  */
 export function buildAiPromptFromContext(
   items: WardrobeItem[],

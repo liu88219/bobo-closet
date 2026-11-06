@@ -425,12 +425,12 @@ export const OutfitStylist: React.FC<OutfitStylistProps> = ({
               {copiedPrompt ? (
                 <>
                   <Check className="w-3.5 h-3.5 text-[#6C8A66]" />
-                  <span>已複製！直接貼回對話框找 Jetski 細調</span>
+                  <span>已複製！直接貼回對話框找 AI 助手細調</span>
                 </>
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5 text-[#BA7E4D]" />
-                  <span>複製衣櫥與情境請 Jetski AI 深度搭配</span>
+                  <span>複製衣櫥與情境請 AI 助手深度搭配</span>
                 </>
               )}
             </button>

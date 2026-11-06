@@ -243,7 +243,7 @@ export function createInitialVaultState(): ClosetVaultState {
 }
 
 /**
- * 將 GitHub Repo 最新內建單品 (Jetski AI 新增) 與本機/雲端資料無損融合
+ * 將 GitHub Repo 最新內建單品 (AI 助手新增) 與本機/雲端資料無損融合
  */
 export function injectRepoManagedCatalog(vault: ClosetVaultState): ClosetVaultState {
   const deletedItems = vault.deletedItemIds || {};

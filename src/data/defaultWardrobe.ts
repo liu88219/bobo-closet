@@ -1,7 +1,7 @@
 import { SavedOutfit, WardrobeItem } from '../types/wardrobe';
 
 /**
- * 當 liumona 在對話中傳照片或描述真實衣服給 Jetski AI 時，
+ * 當透過 AI 助手整理真實衣服照片或單品資訊時，
  * 可直接將整理好的單品與照片（存放於 public/wardrobe/）寫入此陣列並推播至 GitHub，
  * 所有裝置（iPhone 主畫面 App / Safari / 電腦）會在保留本機編輯的前提下自動合併最新單品！
  */

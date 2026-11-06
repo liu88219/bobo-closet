@@ -94,7 +94,7 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
             我的奶油膠囊衣櫥（共 {visibleItems.length} 件單品）
           </h2>
           <p className="text-xs text-[#73533E] leading-relaxed">
-            你可以直接拍衣服傳給 Jetski 幫你建檔入庫，也能在手機點右側按鈕隨拍新增！
+            你可以直接拍衣服請 AI 助手幫你建檔入庫，也能在手機點右側按鈕隨拍新增！
           </p>
         </div>
 
@@ -264,7 +264,7 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
             這個篩選條件下還沒有衣服單品唷
           </h3>
           <p className="text-xs text-[#8E6D56] max-w-md mx-auto leading-relaxed">
-            點選「＋ 新增衣服照片」拍下你的上衣、褲裙、外套或鞋子，也可以直接傳照片到對話框請 Jetski 幫你整理入庫！
+            點選「＋ 新增衣服照片」拍下你的上衣、褲裙、外套或鞋子，也可以直接傳照片到對話框請 AI 助手幫你整理入庫！
           </p>
           <div className="flex justify-center gap-2 pt-1">
             {hideSamples && sampleCount > 0 && (

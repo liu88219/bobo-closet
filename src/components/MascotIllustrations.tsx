@@ -12,7 +12,7 @@ const BUTTER = '#F7CE6A';
 export const QuokkaBoboAvatar: React.FC<{ className?: string }> = ({
   className = 'w-11 h-11',
 }) => {
-  const src = './icon-192.png?v=3';
+  const src = './icon-192.png?v=4';
   return (
     <div
       className={`overflow-hidden rounded-2xl border border-[#DDD7C9] bg-[#E2DED2] shadow-sm select-none ${className}`}
@@ -35,7 +35,7 @@ export const QuokkaBoboAvatar: React.FC<{ className?: string }> = ({
 export const StylistStudioIllustration: React.FC<{ className?: string }> = ({
   className = 'w-44 h-24',
 }) => {
-  const src = './assets/hero-bobo-closet.webp?v=3';
+  const src = './assets/hero-bobo-closet.webp?v=4';
   return (
     <div
       className={`overflow-hidden rounded-2xl border border-[#DDD7C9] bg-[#E6E2D6] shadow-sm select-none ${className}`}

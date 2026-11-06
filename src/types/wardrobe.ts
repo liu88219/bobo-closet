@@ -84,7 +84,7 @@ export interface WardrobeItem {
   lastWornDate?: string;
   /** Starter sample items so user sees how the cream lookbook works right away */
   isSample?: boolean;
-  /** Items committed directly via Jetski AI chat into repo */
+  /** Items committed directly via AI chat assistant into repo */
   isRepoManaged?: boolean;
   createdAt: number;
   updatedAt: number;
