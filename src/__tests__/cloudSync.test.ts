@@ -52,4 +52,25 @@ describe('cloudSync safety & deterministic keys', () => {
     expect(merged.items.some((i) => i.id === 'real-sweater-01')).toBe(true);
     expect(merged.items.some((i) => i.id === 'sample-top-cream-tee')).toBe(false);
   });
+
+  it('merges customSubCategories across browsers without losing custom styles', () => {
+    const stateA: ClosetVaultState = {
+      ...createInitialVaultState(),
+      customSubCategories: { tops: ['泡泡袖襯衫'], bottoms: ['繭型褲'] },
+      updatedAt: 20000,
+    };
+    const stateB: ClosetVaultState = {
+      ...createInitialVaultState(),
+      customSubCategories: { tops: ['polo領針織', '泡泡袖襯衫'], dresses: ['魚尾長裙'] },
+      updatedAt: 30000,
+    };
+
+    const merged = mergeVaultStates(stateA, stateB);
+    expect(merged.customSubCategories?.tops).toHaveLength(2);
+    expect(merged.customSubCategories?.tops).toEqual(
+      expect.arrayContaining(['泡泡袖襯衫', 'polo領針織'])
+    );
+    expect(merged.customSubCategories?.bottoms).toEqual(['繭型褲']);
+    expect(merged.customSubCategories?.dresses).toEqual(['魚尾長裙']);
+  });
 });

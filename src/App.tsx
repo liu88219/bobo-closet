@@ -32,6 +32,7 @@ import {
 } from './services/cloudSync';
 import {
   ClosetVaultState,
+  ClothingCategory,
   GeneratedOutfitProposal,
   SavedOutfit,
   StylingContextInput,
@@ -189,6 +190,7 @@ export const App: React.FC = () => {
   // Helper to commit local edits + schedule immediate cloud push
   const commitVaultUpdate = useCallback(
     (updater: (prev: ClosetVaultState) => ClosetVaultState) => {
+      if (isReadOnlyShareView) return;
       setVault((prev) => {
         const nextRaw = updater(prev);
         const next: ClosetVaultState = {
@@ -202,7 +204,7 @@ export const App: React.FC = () => {
         return next;
       });
     },
-    [triggerCloudSync]
+    [isReadOnlyShareView, triggerCloudSync]
   );
 
   // Item CRUD handlers
@@ -285,6 +287,54 @@ export const App: React.FC = () => {
       ...prev,
       hideSamples: !prev.hideSamples,
     }));
+  };
+
+  const handleAdjustWearCount = (itemId: string, delta: number) => {
+    const now = Date.now();
+    const todayStr = new Date().toISOString().slice(0, 10);
+    commitVaultUpdate((prev) => ({
+      ...prev,
+      items: prev.items.map((i) => {
+        if (i.id !== itemId) return i;
+        const nextCount = Math.max(0, (i.wearCount || 0) + delta);
+        return {
+          ...i,
+          wearCount: nextCount,
+          lastWornDate: delta > 0 ? todayStr : nextCount === 0 ? undefined : i.lastWornDate,
+          updatedAt: now,
+        };
+      }),
+    }));
+  };
+
+  const handleAddCustomSubCategory = (cat: ClothingCategory, label: string) => {
+    const clean = label.trim();
+    if (!clean) return;
+    commitVaultUpdate((prev) => {
+      const existing = prev.customSubCategories?.[cat] || [];
+      if (existing.includes(clean)) return prev;
+      return {
+        ...prev,
+        customSubCategories: {
+          ...(prev.customSubCategories || {}),
+          [cat]: [...existing, clean],
+        },
+      };
+    });
+    showToast(`🏷️ 已新增自訂款式版型「${clean}」`);
+  };
+
+  const handleRemoveCustomSubCategory = (cat: ClothingCategory, label: string) => {
+    commitVaultUpdate((prev) => {
+      const existing = prev.customSubCategories?.[cat] || [];
+      return {
+        ...prev,
+        customSubCategories: {
+          ...(prev.customSubCategories || {}),
+          [cat]: existing.filter((x) => x !== label),
+        },
+      };
+    });
   };
 
   // Outfit Stylist -> Save to Lookbook / Wear Today
@@ -571,6 +621,7 @@ export const App: React.FC = () => {
             }}
             onToggleFavorite={handleToggleFavoriteItem}
             onToggleLaundry={handleToggleLaundry}
+            onAdjustWearCount={handleAdjustWearCount}
             onQuickStyleWithItem={(itemId) => {
               setLockedItemIdForStylist(itemId);
               setActiveTab('stylist');
@@ -657,6 +708,9 @@ export const App: React.FC = () => {
       {isAddModalOpen && !isReadOnlyShareView && (
         <AddItemModal
           initialItem={editingItem}
+          customSubCategories={vault.customSubCategories}
+          onAddCustomSubCategory={handleAddCustomSubCategory}
+          onRemoveCustomSubCategory={handleRemoveCustomSubCategory}
           onClose={() => {
             setIsAddModalOpen(false);
             setEditingItem(null);

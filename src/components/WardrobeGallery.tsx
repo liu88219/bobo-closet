@@ -6,6 +6,7 @@ import {
   EyeOff,
   Heart,
   MessageSquareHeart,
+  Minus,
   Plus,
   Search,
   Sparkles,
@@ -21,6 +22,8 @@ import {
 } from '../types/wardrobe';
 import { WardrobeItemVisual } from './MascotIllustrations';
 
+type SortByOption = 'newest' | 'least_worn' | 'most_worn';
+
 interface WardrobeGalleryProps {
   items: WardrobeItem[];
   hideSamples: boolean;
@@ -29,6 +32,7 @@ interface WardrobeGalleryProps {
   onEditItem: (item: WardrobeItem) => void;
   onToggleFavorite: (itemId: string) => void;
   onToggleLaundry: (itemId: string) => void;
+  onAdjustWearCount: (itemId: string, delta: number) => void;
   onQuickStyleWithItem: (itemId: string) => void;
 }
 
@@ -40,19 +44,21 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
   onEditItem,
   onToggleFavorite,
   onToggleLaundry,
+  onAdjustWearCount,
   onQuickStyleWithItem,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<'all' | ClothingCategory>('all');
   const [selectedColor, setSelectedColor] = useState<'all' | ColorTone>('all');
   const [onlyClean, setOnlyClean] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<SortByOption>('newest');
   const [cardVisualStyle, setCardVisualStyle] = useState<CardVisualStyle>('flatlay');
 
   const realCount = useMemo(() => items.filter((i) => !i.isSample).length, [items]);
   const sampleCount = useMemo(() => items.filter((i) => i.isSample).length, [items]);
 
   const visibleItems = useMemo(() => {
-    return items.filter((item) => {
+    const filtered = items.filter((item) => {
       if (hideSamples && item.isSample) return false;
       if (selectedCategory !== 'all' && item.category !== selectedCategory) return false;
       if (selectedColor !== 'all' && item.colorTone !== selectedColor) return false;
@@ -66,7 +72,19 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
       }
       return true;
     });
-  }, [items, hideSamples, selectedCategory, selectedColor, onlyClean, searchQuery]);
+
+    if (sortBy === 'least_worn') {
+      return [...filtered].sort(
+        (a, b) => (a.wearCount || 0) - (b.wearCount || 0) || b.createdAt - a.createdAt
+      );
+    }
+    if (sortBy === 'most_worn') {
+      return [...filtered].sort(
+        (a, b) => (b.wearCount || 0) - (a.wearCount || 0) || b.createdAt - a.createdAt
+      );
+    }
+    return filtered;
+  }, [items, hideSamples, selectedCategory, selectedColor, onlyClean, searchQuery, sortBy]);
 
   // Color distribution summary bar
   const paletteBreakdown = useMemo(() => {
@@ -140,8 +158,8 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
             <div className="inline-flex items-center rounded-full bg-[#FAF8F3] border border-[#DDD7C9] p-0.5">
               {(
                 [
-                  { id: 'flatlay', label: '🪄 奶油平拍' },
-                  { id: 'real', label: '✂️ 實穿垂墜' },
+                  { id: 'flatlay', label: '🪄 去手原衣' },
+                  { id: 'real', label: '✂️ 對鏡實穿' },
                   { id: 'pastel', label: '🎨 粉彩手繪' },
                 ] as const
               ).map((opt) => (
@@ -251,17 +269,28 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
           })}
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-48">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+          <div className="relative flex-1 sm:w-44">
             <Search className="w-3.5 h-3.5 text-[#A48770] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜尋單品或材質..."
+              placeholder="搜尋單品或款式..."
               className="w-full pl-8 pr-3 py-2 rounded-2xl bg-[#FFFDF9] border border-[#E7D6BE] text-xs text-[#422B1D] placeholder:text-[#B59B82] focus:outline-none focus:border-[#BA7E4D]"
             />
           </div>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortByOption)}
+            aria-label="排序方式"
+            className="shrink-0 px-2.5 py-2 rounded-2xl bg-[#FFFDF9] border border-[#E7D6BE] text-xs font-bold text-[#583D2B] focus:outline-none focus:border-[#BA7E4D]"
+            title="依加入時間或實穿次數排序（找出少穿閒置衣或百搭愛衣）"
+          >
+            <option value="newest">🕒 最新加入</option>
+            <option value="least_worn">❄️ 少穿優先</option>
+            <option value="most_worn">🔥 常穿百搭</option>
+          </select>
           <button
             type="button"
             onClick={() => setOnlyClean((v) => !v)}
@@ -380,19 +409,43 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
                   {/* Item Info */}
                   <div className="mt-2.5 space-y-1">
                     <div className="flex items-center justify-between gap-1">
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#8E6D56]">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#8E6D56] min-w-0 truncate">
                         <span
-                          className="w-2.5 h-2.5 rounded-full inline-block"
+                          className="w-2.5 h-2.5 rounded-full inline-block shrink-0"
                           style={{
                             backgroundColor: colorMeta.hex,
                             border: `1px solid ${colorMeta.borderHex}`,
                           }}
                         />
-                        {colorMeta.label} · {item.subCategory}
+                        <span className="truncate">
+                          {colorMeta.label} · {item.subCategory}
+                        </span>
                       </span>
-                      <span className="text-[10px] text-[#A48770] font-semibold">
-                        穿過 {item.wearCount} 次
-                      </span>
+                      <div
+                        className="inline-flex items-center gap-0.5 rounded-full bg-[#FAF5EC] border border-[#E7D6BE] px-1 py-0.5 shrink-0"
+                        title="點擊 - / + 直接調整實穿次數（0~3 次少穿單品在穿搭顧問中會獲得防閒置優先加分！）"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onAdjustWearCount(item.id, -1)}
+                          disabled={(item.wearCount || 0) <= 0}
+                          className="w-4 h-4 rounded-full flex items-center justify-center text-[#73533E] hover:bg-[#EFE5D4] disabled:opacity-30"
+                          aria-label="減少實穿次數"
+                        >
+                          <Minus className="w-2.5 h-2.5" />
+                        </button>
+                        <span className="text-[10px] text-[#583D2B] font-bold px-0.5 tabular-nums">
+                          穿 {item.wearCount || 0} 次
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => onAdjustWearCount(item.id, 1)}
+                          className="w-4 h-4 rounded-full flex items-center justify-center text-[#73533E] hover:bg-[#EFE5D4]"
+                          aria-label="增加實穿次數"
+                        >
+                          <Plus className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
                     </div>
 
                     <h3 className="text-xs sm:text-sm font-bold text-[#422B1D] line-clamp-1">

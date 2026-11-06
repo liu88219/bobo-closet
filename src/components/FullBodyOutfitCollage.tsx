@@ -9,8 +9,8 @@ interface FullBodyOutfitCollageProps {
 }
 
 const STYLE_OPTIONS: Array<{ id: CardVisualStyle; label: string }> = [
-  { id: 'flatlay', label: '🪄 平拍' },
-  { id: 'real', label: '✂️ 實穿' },
+  { id: 'flatlay', label: '🪄 去手原衣' },
+  { id: 'real', label: '✂️ 對鏡實穿' },
   { id: 'pastel', label: '🎨 粉彩' },
 ];
 

@@ -125,6 +125,7 @@ export interface ClosetVaultState {
   outfits: SavedOutfit[];
   deletedItemIds: Record<string, number>;
   deletedOutfitIds: Record<string, number>;
+  customSubCategories?: Partial<Record<ClothingCategory, string[]>>;
   hideSamples: boolean;
   updatedAt: number;
 }

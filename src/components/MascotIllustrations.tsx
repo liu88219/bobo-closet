@@ -426,6 +426,9 @@ export const WardrobeItemVisual: React.FC<{
     );
   }
 
+  const isCleanCutout =
+    preferredStyle === 'flatlay' && Boolean(flatlayUrl) && chosenUrl === flatlayUrl;
+
   return (
     <div
       className={`relative overflow-hidden rounded-2xl bg-[#FAF8F3] border border-[#DDD7C9] ${className}`}
@@ -435,7 +438,9 @@ export const WardrobeItemVisual: React.FC<{
           src={chosenUrl}
           alt={name}
           loading="lazy"
-          className="w-full h-full object-cover"
+          className={`w-full h-full ${
+            isCleanCutout ? 'object-contain p-1 bg-[#FAF8F3]' : 'object-cover'
+          }`}
         />
       ) : (
         <GarmentVectorIllustration

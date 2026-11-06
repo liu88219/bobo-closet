@@ -5,7 +5,12 @@ import {
   STARTER_SAMPLE_ITEMS,
   STARTER_SAMPLE_OUTFITS,
 } from '../data/defaultWardrobe';
-import { ClosetVaultState, SavedOutfit, WardrobeItem } from '../types/wardrobe';
+import {
+  ClosetVaultState,
+  ClothingCategory,
+  SavedOutfit,
+  WardrobeItem,
+} from '../types/wardrobe';
 
 const LOCAL_VAULT_KEY = 'bobocloset_vault_state_v1';
 const PASSHASH_STORAGE_KEY = 'bobocloset_owner_passhash_v1';
@@ -428,11 +433,30 @@ export function mergeVaultStates(
         : remote.hideSamples;
   }
 
+  // Merge user-created custom subcategory presets across browsers
+  const mergedCustomSubs: Partial<Record<ClothingCategory, string[]>> = {};
+  const allCats = new Set<ClothingCategory>([
+    ...(Object.keys(remote.customSubCategories || {}) as ClothingCategory[]),
+    ...(Object.keys(local.customSubCategories || {}) as ClothingCategory[]),
+  ]);
+  for (const cat of allCats) {
+    const combined = Array.from(
+      new Set([
+        ...(remote.customSubCategories?.[cat] || []),
+        ...(local.customSubCategories?.[cat] || []),
+      ])
+    ).filter((s) => s.trim().length > 0);
+    if (combined.length > 0) {
+      mergedCustomSubs[cat] = combined;
+    }
+  }
+
   return injectRepoManagedCatalog({
     items: Array.from(itemById.values()),
     outfits: Array.from(outfitById.values()),
     deletedItemIds: mergedDeletedItems,
     deletedOutfitIds: mergedDeletedOutfits,
+    customSubCategories: mergedCustomSubs,
     hideSamples,
     updatedAt: Math.max(local.updatedAt || 1000, remote.updatedAt || 1000),
   });
@@ -707,6 +731,7 @@ export function parseImportedVaultJson(rawText: string): ClosetVaultState {
     outfits: Array.isArray(candidate.outfits) ? candidate.outfits : [],
     deletedItemIds: candidate.deletedItemIds || {},
     deletedOutfitIds: candidate.deletedOutfitIds || {},
+    customSubCategories: candidate.customSubCategories || {},
     hideSamples: Boolean(candidate.hideSamples),
     updatedAt: Date.now(),
   };

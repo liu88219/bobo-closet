@@ -1,5 +1,16 @@
 import React, { useRef, useState } from 'react';
-import { Camera, Check, Crop, Scissors, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import {
+  Camera,
+  Check,
+  Crop,
+  Minus,
+  Plus,
+  Scissors,
+  Sparkles,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 import {
   CATEGORY_META,
   COLOR_TONE_META,
@@ -23,6 +34,9 @@ import { PhotoRegionCropperModal } from './PhotoRegionCropperModal';
 
 interface AddItemModalProps {
   initialItem?: WardrobeItem | null;
+  customSubCategories?: Partial<Record<ClothingCategory, string[]>>;
+  onAddCustomSubCategory?: (cat: ClothingCategory, label: string) => void;
+  onRemoveCustomSubCategory?: (cat: ClothingCategory, label: string) => void;
   onClose: () => void;
   onSave: (item: WardrobeItem) => void;
   onSaveAndContinueSamePhoto?: (item: WardrobeItem) => void;
@@ -83,6 +97,9 @@ const WARMTH_LABELS: Record<WarmthLevel, string> = {
 
 export const AddItemModal: React.FC<AddItemModalProps> = ({
   initialItem,
+  customSubCategories = {},
+  onAddCustomSubCategory,
+  onRemoveCustomSubCategory,
   onClose,
   onSave,
   onSaveAndContinueSamePhoto,
@@ -93,6 +110,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   const [subCategory, setSubCategory] = useState(
     initialItem?.subCategory || SUBCATEGORY_PRESETS.tops[0].label
   );
+  const [customSubInput, setCustomSubInput] = useState('');
   const [silhouette, setSilhouette] = useState<GarmentSilhouette>(
     initialItem?.silhouette || 'tee'
   );
@@ -111,15 +129,29 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     initialItem?.rainFriendly ?? true
   );
   const [isFavorite, setIsFavorite] = useState<boolean>(initialItem?.isFavorite ?? false);
+  const [wearCount, setWearCount] = useState<number>(initialItem?.wearCount ?? 0);
+  const [lastWornDate, setLastWornDate] = useState<string>(
+    initialItem?.lastWornDate || ''
+  );
   const [isCompressing, setIsCompressing] = useState(false);
   const [autoColorHint, setAutoColorHint] = useState<string | null>(null);
 
-  // Full original photo retained in memory so user can re-crop or split multiple garments from 1 OOTD photo!
   const [rawSourceDataUrl, setRawSourceDataUrl] = useState<string | null>(null);
   const [isCropperOpen, setIsCropperOpen] = useState(false);
   const [multiSplitCount, setMultiSplitCount] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const builtInLabels = new Set(SUBCATEGORY_PRESETS[category].map((p) => p.label));
+  const extraCustomLabels = (customSubCategories[category] || []).filter(
+    (lbl) => !builtInLabels.has(lbl)
+  );
+  // Also show current subCategory if it came from editing a custom item not yet in list
+  const activeCustomNotInList =
+    subCategory && !builtInLabels.has(subCategory) && !extraCustomLabels.includes(subCategory)
+      ? [subCategory]
+      : [];
+  const allCustomForCat = [...extraCustomLabels, ...activeCustomNotInList];
 
   const handleCategoryChange = (nextCat: ClothingCategory) => {
     setCategory(nextCat);
@@ -129,6 +161,14 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       setSilhouette(firstPreset.silhouette);
       setWarmth(firstPreset.defaultWarmth);
     }
+  };
+
+  const handleAddCustomSub = () => {
+    const clean = customSubInput.trim();
+    if (!clean) return;
+    setSubCategory(clean);
+    onAddCustomSubCategory?.(category, clean);
+    setCustomSubInput('');
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -192,8 +232,14 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
   };
 
   const buildItemObject = (): WardrobeItem => {
+    const pendingCustom = customSubInput.trim();
+    const resolvedSub = pendingCustom || subCategory;
+    if (pendingCustom) {
+      onAddCustomSubCategory?.(category, pendingCustom);
+      setCustomSubInput('');
+    }
     const finalName =
-      name.trim() || `${COLOR_TONE_META[colorTone].label}${subCategory}`;
+      name.trim() || `${COLOR_TONE_META[colorTone].label}${resolvedSub}`;
     const now = Date.now();
     return {
       id:
@@ -202,7 +248,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
           : `item-${now}-${Math.random().toString(36).slice(2, 7)}`,
       name: finalName,
       category,
-      subCategory,
+      subCategory: resolvedSub,
       colorTone,
       colorHex: COLOR_TONE_META[colorTone].hex,
       seasons,
@@ -212,11 +258,19 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       fitNote: fitNote.trim() || undefined,
       brand: brand.trim() || undefined,
       imageUrl,
+      flatlayUrl: initialItem && multiSplitCount === 0 ? initialItem.flatlayUrl : undefined,
+      realCropUrl:
+        imageUrl?.startsWith('data:image/')
+          ? imageUrl
+          : initialItem && multiSplitCount === 0
+          ? initialItem.realCropUrl
+          : undefined,
+      pastelUrl: initialItem && multiSplitCount === 0 ? initialItem.pastelUrl : undefined,
       isFavorite,
       inLaundry: initialItem?.inLaundry ?? false,
       rainFriendly,
-      wearCount: initialItem && multiSplitCount === 0 ? initialItem.wearCount : 0,
-      lastWornDate: initialItem && multiSplitCount === 0 ? initialItem.lastWornDate : undefined,
+      wearCount: Math.max(0, wearCount),
+      lastWornDate: lastWornDate.trim() || undefined,
       isSample: false,
       createdAt:
         initialItem?.createdAt && initialItem.createdAt > 1000 && multiSplitCount === 0
@@ -236,7 +290,6 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     const saved = buildItemObject();
     onSaveAndContinueSamePhoto(saved);
 
-    // Prepare next common garment category & reopen cropper on the SAME photo!
     const nextCat: ClothingCategory =
       category === 'tops' || category === 'outerwear'
         ? 'bottoms'
@@ -246,6 +299,8 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     handleCategoryChange(nextCat);
     setName('');
     setFitNote('');
+    setWearCount(0);
+    setLastWornDate('');
     setMultiSplitCount((c) => c + 1);
     setIsCropperOpen(true);
   };
@@ -264,7 +319,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                   : '🧺 新增衣服到奶油衣櫥'}
               </h2>
               <p className="text-xs text-[#8A7E70]">
-                支援含人物全身照「局部框選避臉裁切」，一張實穿照可連切上衣、褲裙與鞋包！
+                支援含人物全身照「局部框選避臉裁切」、自訂款式版型與實穿次數管理
               </p>
             </div>
             <button
@@ -386,10 +441,10 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
               </div>
             </div>
 
-            {/* Subcategory Presets */}
-            <div>
-              <label className="block text-xs font-bold text-[#5C5044] mb-1.5">
-                2. 款式版型（點擊快速帶入）
+            {/* Subcategory Presets + Custom Subcategory Creator! */}
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-[#5C5044]">
+                2. 款式版型（點選現有標籤，或新增你的專屬版型）
               </label>
               <div className="flex flex-wrap gap-1.5">
                 {SUBCATEGORY_PRESETS[category].map((preset) => {
@@ -405,7 +460,7 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                       }}
                       className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
                         active
-                          ? 'bg-[#F2CA62]/45 border-[#C48E63] text-[#2D251E]'
+                          ? 'bg-[#F2CA62]/50 border-[#C48E63] text-[#2D251E]'
                           : 'bg-[#FAF8F3] border-[#DDD7C9] text-[#8A7E70]'
                       }`}
                     >
@@ -413,6 +468,70 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     </button>
                   );
                 })}
+
+                {allCustomForCat.map((customLabel) => {
+                  const active = subCategory === customLabel;
+                  return (
+                    <div
+                      key={customLabel}
+                      className={`inline-flex items-center gap-1 pl-3 pr-1.5 py-1 rounded-full text-xs font-bold border transition ${
+                        active
+                          ? 'bg-[#F2CA62]/50 border-[#C48E63] text-[#2D251E]'
+                          : 'bg-[#FAF8F3] border-[#DDD7C9] text-[#5C5044]'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSubCategory(customLabel)}
+                        className="text-left"
+                      >
+                        ✨ {customLabel}
+                      </button>
+                      {onRemoveCustomSubCategory && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onRemoveCustomSubCategory(category, customLabel);
+                            if (subCategory === customLabel) {
+                              setSubCategory(SUBCATEGORY_PRESETS[category][0].label);
+                            }
+                          }}
+                          className="w-4 h-4 rounded-full hover:bg-[#2D251E]/10 flex items-center justify-center text-[#8A7E70]"
+                          title="移除此自訂版型標籤"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Inline Add Custom Subcategory Row */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={customSubInput}
+                  onChange={(e) => setCustomSubInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddCustomSub();
+                    }
+                  }}
+                  placeholder="自訂款式版型（例：一字領針織、繭型褲、工裝裙、腋下包...）"
+                  className="flex-1 px-3 py-1.5 rounded-xl bg-[#EFECE4]/60 border border-[#DDD7C9] text-xs text-[#2D251E] placeholder:text-[#9E9284] focus:outline-none focus:border-[#C48E63]"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCustomSub}
+                  disabled={!customSubInput.trim()}
+                  className="bobo-btn-soft shrink-0 inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#FAF8F3] disabled:opacity-45 text-xs font-bold text-[#2D251E]"
+                >
+                  <Plus className="w-3.5 h-3.5 text-[#C48E63]" />
+                  <span>新增款式</span>
+                </button>
               </div>
             </div>
 
@@ -420,13 +539,15 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <div className="sm:col-span-2">
                 <label className="block text-xs font-bold text-[#5C5044] mb-1">
-                  單品名稱（留空會自動依色系命名）
+                  單品名稱（留空會自動依色系＋款式命名）
                 </label>
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={`例：${COLOR_TONE_META[colorTone].label}${subCategory}`}
+                  placeholder={`例：${COLOR_TONE_META[colorTone].label}${
+                    customSubInput.trim() || subCategory
+                  }`}
                   className="w-full px-3.5 py-2 rounded-xl bg-[#EFECE4]/60 border border-[#DDD7C9] text-sm text-[#2D251E] placeholder:text-[#9E9284] focus:outline-none focus:border-[#C48E63]"
                 />
               </div>
@@ -547,6 +668,55 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Wear Count & Last Worn Date Editor */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-2xl bg-[#EFECE4]/55 border border-[#DDD7C9]">
+              <div>
+                <label className="block text-xs font-bold text-[#5C5044] mb-1">
+                  6. 累積實穿次數（少穿的衣服 AI 會優先幫你搭配！）
+                </label>
+                <div className="inline-flex items-center gap-2 bg-[#FAF8F3] border border-[#DDD7C9] rounded-xl px-2 py-1">
+                  <button
+                    type="button"
+                    onClick={() => setWearCount((c) => Math.max(0, c - 1))}
+                    className="w-7 h-7 rounded-lg bg-[#EFECE4] text-[#2D251E] flex items-center justify-center"
+                    aria-label="減少實穿次數"
+                  >
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <input
+                    type="number"
+                    min={0}
+                    value={wearCount}
+                    onChange={(e) =>
+                      setWearCount(Math.max(0, parseInt(e.target.value || '0', 10) || 0))
+                    }
+                    className="w-14 text-center text-xs font-bold text-[#2D251E] bg-transparent focus:outline-none"
+                  />
+                  <span className="text-xs text-[#8A7E70] pr-1">次</span>
+                  <button
+                    type="button"
+                    onClick={() => setWearCount((c) => c + 1)}
+                    className="w-7 h-7 rounded-lg bg-[#F2CA62]/55 text-[#2D251E] flex items-center justify-center"
+                    aria-label="增加實穿次數"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#5C5044] mb-1">
+                  最近穿搭日期（選填）
+                </label>
+                <input
+                  type="date"
+                  value={lastWornDate}
+                  onChange={(e) => setLastWornDate(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#FAF8F3] border border-[#DDD7C9] text-xs font-semibold text-[#2D251E] focus:outline-none focus:border-[#C48E63]"
+                />
               </div>
             </div>
 
