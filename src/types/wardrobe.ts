@@ -36,6 +36,8 @@ export type WeatherCondition = 'sunny' | 'cloudy' | 'rainy' | 'ac_cold';
 
 export type WarmthLevel = 1 | 2 | 3 | 4 | 5;
 
+export type CardVisualStyle = 'flatlay' | 'real' | 'pastel';
+
 export type GarmentSilhouette =
   | 'tee'
   | 'shirt'
@@ -75,8 +77,14 @@ export interface WardrobeItem {
   silhouette: GarmentSilhouette;
   fitNote?: string;
   brand?: string;
-  /** Repo path (e.g. './wardrobe/knit.webp') or compressed Base64 Data URL */
+  /** Primary image URL (repo path e.g. './wardrobe/knit.webp' or compressed Base64 Data URL) */
   imageUrl?: string;
+  /** Hybrid Mode B: Clean #FAF8F3 matte cream flat-lay extraction */
+  flatlayUrl?: string;
+  /** Hybrid Mode A: Privacy-safe neck-down real worn crop */
+  realCropUrl?: string;
+  /** Hybrid Mode C: Dinotaeng dry oil-pastel crayon card */
+  pastelUrl?: string;
   isFavorite?: boolean;
   inLaundry?: boolean;
   rainFriendly?: boolean;

@@ -13,6 +13,7 @@ import {
 import {
   CATEGORY_META,
   COLOR_TONE_META,
+  CardVisualStyle,
   ClothingCategory,
   ColorTone,
   OCCASION_META,
@@ -45,6 +46,7 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
   const [selectedColor, setSelectedColor] = useState<'all' | ColorTone>('all');
   const [onlyClean, setOnlyClean] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [cardVisualStyle, setCardVisualStyle] = useState<CardVisualStyle>('flatlay');
 
   const realCount = useMemo(() => items.filter((i) => !i.isSample).length, [items]);
   const sampleCount = useMemo(() => items.filter((i) => i.isSample).length, [items]);
@@ -133,11 +135,30 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
       {/* Color Harmony Bar */}
       {paletteBreakdown.length > 0 && (
         <div className="cream-card-soft px-4 py-3 space-y-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-[#583D2B]">🎨 衣櫥色系比例</span>
-            <span className="text-[11px] text-[#8E6D56]">
-              點下方色票可篩選同色系單品
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="font-bold text-[#583D2B]">🎨 衣櫥色系比例 ＆ 混合卡面視角</span>
+            <div className="inline-flex items-center rounded-full bg-[#FAF8F3] border border-[#DDD7C9] p-0.5">
+              {(
+                [
+                  { id: 'flatlay', label: '🪄 奶油平拍' },
+                  { id: 'real', label: '✂️ 實穿垂墜' },
+                  { id: 'pastel', label: '🎨 粉彩手繪' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setCardVisualStyle(opt.id)}
+                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold transition ${
+                    cardVisualStyle === opt.id
+                      ? 'bg-[#F2CA62] text-[#2D251E]'
+                      : 'text-[#8A7E70] hover:text-[#2D251E]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="h-2.5 w-full rounded-full overflow-hidden flex border border-[#E7D6BE] bg-[#FAF5EC]">
             {paletteBreakdown.map((seg) => (
@@ -301,6 +322,10 @@ export const WardrobeGallery: React.FC<WardrobeGalleryProps> = ({
                   <div className="relative group">
                     <WardrobeItemVisual
                       imageUrl={item.imageUrl}
+                      flatlayUrl={item.flatlayUrl}
+                      realCropUrl={item.realCropUrl}
+                      pastelUrl={item.pastelUrl}
+                      preferredStyle={cardVisualStyle}
                       silhouette={item.silhouette}
                       colorTone={item.colorTone}
                       name={item.name}

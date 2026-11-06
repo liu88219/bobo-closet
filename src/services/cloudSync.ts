@@ -262,6 +262,9 @@ export function injectRepoManagedCatalog(vault: ClosetVaultState): ClosetVaultSt
       itemMap.set(item.id, {
         ...item,
         imageUrl: item.imageUrl || existing?.imageUrl,
+        flatlayUrl: item.flatlayUrl || existing?.flatlayUrl,
+        realCropUrl: item.realCropUrl || existing?.realCropUrl,
+        pastelUrl: item.pastelUrl || existing?.pastelUrl,
       });
     }
   }

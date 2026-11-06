@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { LayoutGrid, UserRound } from 'lucide-react';
-import { CATEGORY_META, WardrobeItem } from '../types/wardrobe';
+import { CATEGORY_META, CardVisualStyle, WardrobeItem } from '../types/wardrobe';
 import { WardrobeItemVisual } from './MascotIllustrations';
 
 interface FullBodyOutfitCollageProps {
@@ -8,17 +8,21 @@ interface FullBodyOutfitCollageProps {
   compact?: boolean;
 }
 
+const STYLE_OPTIONS: Array<{ id: CardVisualStyle; label: string }> = [
+  { id: 'flatlay', label: '🪄 平拍' },
+  { id: 'real', label: '✂️ 實穿' },
+  { id: 'pastel', label: '🎨 粉彩' },
+];
+
 /**
- * 模擬試衣間「全身上下比例直向拼圖」：
- * - 左側人體中軸（由上而下對齊）：帽飾 ➔ 上衣 ➔ 正下方緊接褲子/裙子（或連身洋裝） ➔ 最下方接鞋子
- * - 右側層次外搭軸：外套/開襟衫 ＋ 包款 ＋ 其他配件
- * 支援一鍵切換「🪞 全貌上下拼圖」與「田 平鋪方格」，讓上下身配色銜接與全身全貌一目了然！
+ * 模擬試衣間「全身上下比例直向拼圖」＋ 混合卡面三視角切換 (平拍 / 實穿 / 粉彩)
  */
 export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
   items,
   compact = false,
 }) => {
   const [viewMode, setViewMode] = useState<'silhouette' | 'grid'>('silhouette');
+  const [visualStyle, setVisualStyle] = useState<CardVisualStyle>('flatlay');
 
   const hats = items.filter((i) => i.category === 'accessories');
   const tops = items.filter((i) => i.category === 'tops');
@@ -31,13 +35,41 @@ export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
   const sideColumnItems = [...outerwear, ...bags, ...hats.slice(1)];
   const topHat = hats[0];
 
+  const renderVisual = (item: WardrobeItem, className: string) => (
+    <WardrobeItemVisual
+      imageUrl={item.imageUrl}
+      flatlayUrl={item.flatlayUrl}
+      realCropUrl={item.realCropUrl}
+      pastelUrl={item.pastelUrl}
+      preferredStyle={visualStyle}
+      silhouette={item.silhouette}
+      colorTone={item.colorTone}
+      name={item.name}
+      className={className}
+    />
+  );
+
   return (
     <div className="rounded-2xl bg-[#EFECE4]/75 border border-[#DDD7C9] p-2.5 space-y-2">
-      {/* Header Mode Switcher */}
-      <div className="flex items-center justify-between px-0.5">
-        <span className="text-[10px] font-bold text-[#8A7E70]">
-          {viewMode === 'silhouette' ? '🪞 全身上下比例全貌' : '田 單品平鋪一覽'}
-        </span>
+      {/* Header Mode & Hybrid Style Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-1 px-0.5">
+        <div className="inline-flex rounded-full bg-[#FAF8F3] border border-[#DDD7C9] p-0.5">
+          {STYLE_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setVisualStyle(opt.id)}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition ${
+                visualStyle === opt.id
+                  ? 'bg-[#2D251E] text-[#FAF8F3]'
+                  : 'text-[#8A7E70] hover:text-[#2D251E]'
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+
         <div className="inline-flex rounded-full bg-[#FAF8F3] border border-[#DDD7C9] p-0.5">
           <button
             type="button"
@@ -70,13 +102,7 @@ export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
         <div className="grid grid-cols-3 gap-2">
           {items.map((item) => (
             <div key={item.id} className="space-y-1">
-              <WardrobeItemVisual
-                imageUrl={item.imageUrl}
-                silhouette={item.silhouette}
-                colorTone={item.colorTone}
-                name={item.name}
-                className="w-full aspect-square !rounded-xl bg-[#FAF8F3]"
-              />
+              {renderVisual(item, 'w-full aspect-square !rounded-xl bg-[#FAF8F3]')}
               <div className="text-[10px] font-bold text-[#2D251E] truncate text-center px-0.5">
                 {item.name}
               </div>
@@ -99,35 +125,22 @@ export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
               全身主軸比例
             </span>
 
-            {/* Optional Crown Accessory */}
             {topHat && (
               <div className="w-16 flex flex-col items-center">
-                <WardrobeItemVisual
-                  imageUrl={topHat.imageUrl}
-                  silhouette={topHat.silhouette}
-                  colorTone={topHat.colorTone}
-                  name={topHat.name}
-                  className="w-14 h-12 !rounded-xl bg-[#FAF8F3]"
-                />
+                {renderVisual(topHat, 'w-14 h-12 !rounded-xl bg-[#FAF8F3]')}
                 <span className="text-[9px] font-bold text-[#5C5044] truncate max-w-full mt-0.5">
                   {topHat.name}
                 </span>
               </div>
             )}
 
-            {/* Dress OR (Top stacked directly over Bottom!) */}
             {dresses.length > 0 ? (
               dresses.map((dress) => (
                 <div key={dress.id} className="w-full flex flex-col items-center">
-                  <WardrobeItemVisual
-                    imageUrl={dress.imageUrl}
-                    silhouette={dress.silhouette}
-                    colorTone={dress.colorTone}
-                    name={dress.name}
-                    className={`w-full ${
-                      compact ? 'h-32' : 'h-36'
-                    } !rounded-xl bg-[#FAF8F3]`}
-                  />
+                  {renderVisual(
+                    dress,
+                    `w-full ${compact ? 'h-32' : 'h-36'} !rounded-xl bg-[#FAF8F3]`
+                  )}
                   <span className="text-[10px] font-bold text-[#2D251E] truncate max-w-full mt-0.5">
                     {dress.name}
                   </span>
@@ -137,15 +150,12 @@ export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
               <div className="w-full flex flex-col items-center space-y-1">
                 {tops.map((top) => (
                   <div key={top.id} className="w-full flex flex-col items-center">
-                    <WardrobeItemVisual
-                      imageUrl={top.imageUrl}
-                      silhouette={top.silhouette}
-                      colorTone={top.colorTone}
-                      name={top.name}
-                      className={`w-full ${
+                    {renderVisual(
+                      top,
+                      `w-full ${
                         compact ? 'h-24' : 'h-28'
-                      } !rounded-t-xl !rounded-b-md bg-[#FAF8F3]`}
-                    />
+                      } !rounded-t-xl !rounded-b-md bg-[#FAF8F3]`
+                    )}
                     <span className="text-[10px] font-bold text-[#2D251E] truncate max-w-full mt-0.5">
                       {top.name}
                     </span>
@@ -154,15 +164,12 @@ export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
 
                 {bottoms.map((btm) => (
                   <div key={btm.id} className="w-full flex flex-col items-center">
-                    <WardrobeItemVisual
-                      imageUrl={btm.imageUrl}
-                      silhouette={btm.silhouette}
-                      colorTone={btm.colorTone}
-                      name={btm.name}
-                      className={`w-full ${
+                    {renderVisual(
+                      btm,
+                      `w-full ${
                         compact ? 'h-28' : 'h-32'
-                      } !rounded-t-md !rounded-b-xl bg-[#FAF8F3]`}
-                    />
+                      } !rounded-t-md !rounded-b-xl bg-[#FAF8F3]`
+                    )}
                     <span className="text-[10px] font-bold text-[#2D251E] truncate max-w-full mt-0.5">
                       {btm.name}
                     </span>
@@ -171,16 +178,9 @@ export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
               </div>
             )}
 
-            {/* Shoes right underneath hem */}
             {shoes.map((shoe) => (
               <div key={shoe.id} className="w-24 flex flex-col items-center pt-0.5">
-                <WardrobeItemVisual
-                  imageUrl={shoe.imageUrl}
-                  silhouette={shoe.silhouette}
-                  colorTone={shoe.colorTone}
-                  name={shoe.name}
-                  className="w-20 h-14 !rounded-xl bg-[#FAF8F3]"
-                />
+                {renderVisual(shoe, 'w-20 h-14 !rounded-xl bg-[#FAF8F3]')}
                 <span className="text-[9px] font-bold text-[#5C5044] truncate max-w-full mt-0.5">
                   {shoe.name}
                 </span>
@@ -201,15 +201,12 @@ export const FullBodyOutfitCollage: React.FC<FullBodyOutfitCollageProps> = ({
                       ? '🧥 外搭層次'
                       : `${CATEGORY_META[sideItem.category].emoji} 隨身搭配`}
                   </span>
-                  <WardrobeItemVisual
-                    imageUrl={sideItem.imageUrl}
-                    silhouette={sideItem.silhouette}
-                    colorTone={sideItem.colorTone}
-                    name={sideItem.name}
-                    className={`w-full ${
+                  {renderVisual(
+                    sideItem,
+                    `w-full ${
                       sideItem.category === 'outerwear' ? 'h-28' : 'h-20'
-                    } !rounded-xl bg-[#FAF8F3]`}
-                  />
+                    } !rounded-xl bg-[#FAF8F3]`
+                  )}
                   <span className="text-[10px] font-bold text-[#2D251E] truncate max-w-full mt-1">
                     {sideItem.name}
                   </span>

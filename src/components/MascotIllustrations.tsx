@@ -1,5 +1,10 @@
 import React from 'react';
-import { COLOR_TONE_META, ColorTone, GarmentSilhouette } from '../types/wardrobe';
+import {
+  COLOR_TONE_META,
+  CardVisualStyle,
+  ColorTone,
+  GarmentSilhouette,
+} from '../types/wardrobe';
 
 const FUR = '#C99661';
 const INK = '#171210';
@@ -377,26 +382,57 @@ export const GarmentVectorIllustration: React.FC<{
   );
 };
 
+function isValidVisualUrl(url?: string): boolean {
+  return Boolean(
+    url && (url.startsWith('data:image/') || url.startsWith('./') || url.startsWith('http'))
+  );
+}
+
 /**
- * 統一單品視覺卡（有真實照片時以奶油霧面邊框呈現，無照片時顯示同色系簡約奶油插畫）
+ * 混合多視角單品視覺卡：
+ * - preferredStyle === 'flatlay': 優先顯示 🪄 奶油平拍圖 -> imageUrl -> 實穿裁切圖 -> 向量手繪
+ * - preferredStyle === 'real':    優先顯示 ✂️ 實穿局部圖 -> imageUrl -> 奶油平拍圖 -> 向量手繪
+ * - preferredStyle === 'pastel':  優先顯示 🎨 乾粉彩手繪卡 -> 內建無黑框奶油插畫
  */
 export const WardrobeItemVisual: React.FC<{
   imageUrl?: string;
+  flatlayUrl?: string;
+  realCropUrl?: string;
+  pastelUrl?: string;
+  preferredStyle?: CardVisualStyle;
   silhouette: GarmentSilhouette;
   colorTone: ColorTone;
   name: string;
   className?: string;
-}> = ({ imageUrl, silhouette, colorTone, name, className = 'w-full aspect-square' }) => {
-  const validPhoto =
-    imageUrl && (imageUrl.startsWith('data:image/') || imageUrl.startsWith('./') || imageUrl.startsWith('http'));
+}> = ({
+  imageUrl,
+  flatlayUrl,
+  realCropUrl,
+  pastelUrl,
+  preferredStyle = 'flatlay',
+  silhouette,
+  colorTone,
+  name,
+  className = 'w-full aspect-square',
+}) => {
+  let chosenUrl: string | undefined;
+  if (preferredStyle === 'real') {
+    chosenUrl = [realCropUrl, imageUrl, flatlayUrl].find((u) => isValidVisualUrl(u));
+  } else if (preferredStyle === 'pastel') {
+    chosenUrl = isValidVisualUrl(pastelUrl) ? pastelUrl : undefined;
+  } else {
+    chosenUrl = [flatlayUrl, imageUrl, realCropUrl, pastelUrl].find((u) =>
+      isValidVisualUrl(u)
+    );
+  }
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl bg-[#EFECE4] border border-[#DDD7C9] ${className}`}
+      className={`relative overflow-hidden rounded-2xl bg-[#FAF8F3] border border-[#DDD7C9] ${className}`}
     >
-      {validPhoto ? (
+      {chosenUrl ? (
         <img
-          src={imageUrl}
+          src={chosenUrl}
           alt={name}
           loading="lazy"
           className="w-full h-full object-cover"
