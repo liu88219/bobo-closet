@@ -11,10 +11,15 @@ import {
   Link2,
   LogOut,
   RefreshCw,
+  Smartphone,
   Upload,
   X,
 } from 'lucide-react';
-import { LocalVaultSnapshot, listLocalVaultSnapshots } from '../services/cloudSync';
+import {
+  APP_SYNC_VERSION,
+  LocalVaultSnapshot,
+  listLocalVaultSnapshots,
+} from '../services/cloudSync';
 import { ClosetVaultState } from '../types/wardrobe';
 
 interface SyncSettingsModalProps {
@@ -22,6 +27,7 @@ interface SyncSettingsModalProps {
   fingerprintBadge: string | null;
   hasUnsyncedChanges: boolean;
   isSyncing?: boolean;
+  pairUrl?: string | null;
   shareUrl: string | null;
   lastSyncedText: string;
   onClose: () => void;
@@ -38,6 +44,7 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
   fingerprintBadge,
   hasUnsyncedChanges,
   isSyncing = false,
+  pairUrl = null,
   shareUrl,
   lastSyncedText,
   onClose,
@@ -51,6 +58,7 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
   const [passInput, setPassInput] = useState('');
   const [showPasscode, setShowPasscode] = useState(false);
   const [isBinding, setIsBinding] = useState(false);
+  const [copiedPair, setCopiedPair] = useState(false);
   const [copiedShare, setCopiedShare] = useState(false);
   const [snapshots, setSnapshots] = useState<LocalVaultSnapshot[]>([]);
   const importRef = useRef<HTMLInputElement | null>(null);
@@ -77,6 +85,17 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
       setPassInput('');
     } finally {
       setIsBinding(false);
+    }
+  };
+
+  const handleCopyPairLink = async () => {
+    if (!pairUrl) return;
+    try {
+      await navigator.clipboard.writeText(pairUrl);
+      setCopiedPair(true);
+      setTimeout(() => setCopiedPair(false), 2500);
+    } catch {
+      alert(pairUrl);
     }
   };
 
@@ -109,6 +128,9 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
             <h2 className="text-base sm:text-lg font-bold text-[#2D251E]">
               跨裝置永久雙雲端同步 ＆ 備份
             </h2>
+            <span className="px-2 py-0.5 rounded-full bg-[#EFECE4] text-[10px] font-bold text-[#7D7063]">
+              {APP_SYNC_VERSION}
+            </span>
           </div>
           <button
             type="button"
@@ -204,28 +226,51 @@ export const SyncSettingsModal: React.FC<SyncSettingsModalProps> = ({
 
         {/* Force Sync & Safe App Update Button for iOS Home Screen Standalone */}
         {hasPasscode && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {onForceSyncNow && (
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {onForceSyncNow && (
+                <button
+                  type="button"
+                  disabled={isSyncing}
+                  onClick={() => void onForceSyncNow()}
+                  className="bobo-btn-soft flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-2xl bg-[#F2CA62]/65 text-xs font-bold text-[#2D251E]"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                  <span>立即強制推送＆拉取雲端</span>
+                </button>
+              )}
               <button
                 type="button"
                 disabled={isSyncing}
-                onClick={() => void onForceSyncNow()}
-                className="bobo-btn-soft flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-2xl bg-[#F2CA62]/65 text-xs font-bold text-[#2D251E]"
+                onClick={() => void handleSyncAndReloadBundle()}
+                className="bobo-btn-soft flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-2xl bg-[#EFECE4] text-xs font-bold text-[#2D251E]"
+                title="適用於 iPhone 主畫面 App（無網址列重整鍵時，先安全同步資料再載入最新網頁程式版本）"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>立即強制推送＆拉取雲端</span>
+                <RefreshCw className="w-3.5 h-3.5 text-[#C48E63]" />
+                <span>同步並更新最新程式版</span>
               </button>
+            </div>
+
+            {pairUrl && (
+              <div className="p-3 rounded-2xl bg-[#FFFDF9] border border-[#E7D6BE] space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-[#2D251E]">
+                    <Smartphone className="w-3.5 h-3.5 text-[#C48E63]" />
+                    免打字！一鍵複製「跨瀏覽器直接互通連結」
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyPairLink}
+                    className="bobo-btn px-2.5 py-1 rounded-full bg-[#C48E63] text-[#FFFDF9] text-[11px] font-bold shrink-0"
+                  >
+                    {copiedPair ? '✅ 已複製配對連結' : '📲 複製配對連結'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#7D7063] leading-relaxed">
+                  在主畫面 App 複製此連結，直接貼到 Safari 或電腦瀏覽器打開，就會<strong>免輸入通行碼自動連上同一個雲端保險箱</strong>並同步全部衣服！
+                </p>
+              </div>
             )}
-            <button
-              type="button"
-              disabled={isSyncing}
-              onClick={() => void handleSyncAndReloadBundle()}
-              className="bobo-btn-soft flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-2xl bg-[#EFECE4] text-xs font-bold text-[#2D251E]"
-              title="適用於 iPhone 主畫面 App（無網址列重整鍵時，先安全同步資料再載入最新網頁程式版本）"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-[#C48E63]" />
-              <span>同步並更新最新程式版</span>
-            </button>
           </div>
         )}
 

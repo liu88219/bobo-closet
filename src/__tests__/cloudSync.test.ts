@@ -99,6 +99,12 @@ describe('cloudSync safety & deterministic keys', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        if (
+          init?.keepalive &&
+          (url.includes('textdb.online') || url.includes('textdb.dev'))
+        ) {
+          throw new TypeError('WebKit FetchError: concurrent keepalive body exceeds 64KiB');
+        }
         if (url.includes('api.textdb.online/update/')) {
           const params = new URLSearchParams(String(init?.body || ''));
           const k = params.get('key') || '';
@@ -198,6 +204,7 @@ describe('cloudSync safety & deterministic keys', () => {
     expect(pushRes.errorMessage).toBeUndefined();
 
     // 3. Simulate isolated iPhone Home Screen standalone sandbox with lowercase 'closetPass99'
+    savePasshash(null);
     browserStorage = new Map<string, string>();
     const rescuedHash = await resolveBestPasshashOnBind('closetPass99');
     expect(rescuedHash).toBe(safariHash);

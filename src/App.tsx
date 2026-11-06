@@ -17,6 +17,7 @@ import { OutfitStylist } from './components/OutfitStylist';
 import { SyncSettingsModal } from './components/SyncSettingsModal';
 import { WardrobeGallery } from './components/WardrobeGallery';
 import {
+  APP_SYNC_VERSION,
   createInitialVaultState,
   deriveSyncChannels,
   exportVaultJsonFile,
@@ -60,7 +61,9 @@ export const App: React.FC = () => {
   const [showQuickPass, setShowQuickPass] = useState(false);
   const [fingerprintBadge, setFingerprintBadge] = useState<string | null>(null);
   const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
+  const [pairUrl, setPairUrl] = useState<string | null>(null);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [hasNewerAppBundle, setHasNewerAppBundle] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedText, setLastSyncedText] = useState<string>('本機雙重備份保護中');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -70,31 +73,61 @@ export const App: React.FC = () => {
   vaultRef.current = vault;
   const syncInFlightRef = useRef(false);
   const pendingSyncRef = useRef<{ forcePush: boolean; showFeedback: boolean } | null>(null);
+  const bootReadyPromiseRef = useRef<Promise<void> | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
     window.setTimeout(() => {
       setToastMsg((curr) => (curr === msg ? null : curr));
-    }, 2800);
+    }, 3400);
   }, []);
 
   const refreshShareUrl = useCallback(async () => {
-    const channels = await deriveSyncChannels();
-    if (!channels) {
+    const activeHash = await recoverPasshashFromIndexedDB();
+    const channels = await deriveSyncChannels(activeHash);
+    if (!channels || !activeHash) {
       setShareUrl(null);
+      setPairUrl(null);
       setFingerprintBadge(null);
       return;
     }
     const base = `${window.location.origin}${window.location.pathname}`;
     setShareUrl(`${base}?s=${channels.shareReadKey}`);
+    setPairUrl(`${base}?pair=${activeHash}`);
     setFingerprintBadge(channels.fingerprintBadge);
+  }, []);
+
+  const checkForNewerAppBundle = useCallback(async () => {
+    try {
+      const currentScripts = Array.from(document.querySelectorAll('script[src]'))
+        .map((s) => s.getAttribute('src') || '')
+        .find((src) => src.includes('assets/index-'));
+      if (!currentScripts) return;
+      const res = await fetch(`${window.location.pathname}?check=${Date.now()}`, {
+        cache: 'no-store',
+      });
+      if (!res.ok) return;
+      const html = await res.text();
+      const match = html.match(/assets\/index-[A-Za-z0-9_-]+\.js/);
+      if (match && !currentScripts.includes(match[0])) {
+        setHasNewerAppBundle(true);
+      }
+    } catch {
+      // ignore offline bundle check
+    }
   }, []);
 
   const triggerCloudSync = useCallback(
     async (baseState?: ClosetVaultState, forcePush = false, showFeedback = false) => {
       if (isReadOnlyShareView) return;
-      if (!getSavedPasshash()) {
+      if (bootReadyPromiseRef.current) {
+        await bootReadyPromiseRef.current;
+      }
+
+      const activePasshash = await recoverPasshashFromIndexedDB();
+      if (!activePasshash) {
         if (showFeedback) {
+          showToast('🔑 請先輸入與另一台裝置相同的通行碼（或貼上免打字配對連結）即可同步！');
           setIsSyncModalOpen(true);
         }
         return;
@@ -115,29 +148,40 @@ export const App: React.FC = () => {
           ? mergeVaultStates(vaultRef.current, baseState)
           : vaultRef.current;
         const outcome = await syncVaultWithCloud(target, forcePush);
+        if (outcome.fingerprintBadge) {
+          setFingerprintBadge(outcome.fingerprintBadge);
+        }
+
+        let finalMerged = outcome.vault;
         setVault((prev) => {
           const safeMerged = mergeVaultStates(prev, outcome.vault);
+          finalMerged = safeMerged;
           vaultRef.current = safeMerged;
           saveLocalVault(safeMerged);
           return safeMerged;
         });
 
-        if (outcome.errorMessage) {
+        if (outcome.errorMessage && !outcome.partialPhotoPending) {
           if (forcePush) setHasUnsyncedChanges(true);
           setLastSyncedText('待自動重試同步（已存本機保險箱）');
           if (showFeedback) {
             showToast(`⚠️ ${outcome.errorMessage}`);
           }
         } else {
-          setHasUnsyncedChanges(false);
+          setHasUnsyncedChanges(Boolean(outcome.partialPhotoPending));
           const timeStr = new Date().toLocaleTimeString('zh-TW', {
             hour: '2-digit',
             minute: '2-digit',
           });
-          setLastSyncedText(`已與永久雙雲端對齊 (${timeStr})`);
+          setLastSyncedText(`已與雙雲端對齊 (${timeStr})`);
           if (showFeedback) {
+            const visibleCount = finalMerged.items.filter(
+              (i) => !(finalMerged.hideSamples && i.isSample)
+            ).length;
+            const customCount = finalMerged.items.filter((i) => !i.isSample).length;
+            const badgeText = outcome.fingerprintBadge ? ` ${outcome.fingerprintBadge}` : '';
             showToast(
-              outcome.synced ? '🔄 已完成跨瀏覽器雙雲端同步！' : '✨ 目前已是最新雲端狀態'
+              `✅ 已同步雙雲端${badgeText}（共 ${visibleCount} 件衣服 · 自訂 ${customCount} 件）`
             );
           }
         }
@@ -164,9 +208,10 @@ export const App: React.FC = () => {
     [isReadOnlyShareView, showToast]
   );
 
-  // Boot: persistent storage + IndexedDB full photo recovery + passhash recovery + ?s= share link OR initial cloud pull
+  // Boot: persistent storage + IndexedDB full photo recovery + ?pair= 1-click pairing + ?s= share link OR initial cloud pull
   useEffect(() => {
     void requestPersistentStorage();
+    void checkForNewerAppBundle();
 
     const params = new URLSearchParams(window.location.search);
     const shareParam = params.get('s');
@@ -181,45 +226,88 @@ export const App: React.FC = () => {
       return;
     }
 
+    const pairParam = (params.get('pair') || '').trim();
+    const validPairHash = /^[a-f0-9]{16,128}$/i.test(pairParam) ? pairParam.toLowerCase() : null;
+    if (validPairHash) {
+      savePasshash(validPairHash);
+      setHasPasscode(true);
+      try {
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('pair');
+        window.history.replaceState({}, '', cleanUrl.toString());
+      } catch {
+        // ignore URL clean error
+      }
+    }
+
     let mounted = true;
+    let resolveBoot!: () => void;
+    bootReadyPromiseRef.current = new Promise<void>((res) => {
+      resolveBoot = res;
+    });
+
     const init = async () => {
-      const [fullLocal, recoveredHash] = await Promise.all([
-        loadFullLocalVaultState(),
-        recoverPasshashFromIndexedDB(),
-      ]);
+      let mergedBoot = vaultRef.current;
+      let recoveredHash: string | null = validPairHash;
+      try {
+        const [fullLocal, idbHash] = await Promise.all([
+          loadFullLocalVaultState(),
+          recoverPasshashFromIndexedDB(),
+        ]);
+        recoveredHash = validPairHash || idbHash;
+        if (mounted) {
+          setVault((prev) => {
+            mergedBoot = mergeVaultStates(prev, fullLocal);
+            vaultRef.current = mergedBoot;
+            return mergedBoot;
+          });
+        }
+      } finally {
+        resolveBoot();
+        bootReadyPromiseRef.current = null;
+      }
+
       if (!mounted) return;
-      let mergedBoot = fullLocal;
-      setVault((prev) => {
-        mergedBoot = mergeVaultStates(prev, fullLocal);
-        vaultRef.current = mergedBoot;
-        return mergedBoot;
-      });
       if (recoveredHash) {
         setHasPasscode(true);
         await refreshShareUrl();
-        await triggerCloudSync(mergedBoot, (mergedBoot.updatedAt || 1000) > 1000, false);
+        await triggerCloudSync(
+          mergedBoot,
+          (mergedBoot.updatedAt || 1000) > 1000 || mergedBoot.items.some((i) => !i.isSample),
+          Boolean(validPairHash)
+        );
       }
     };
     void init();
     return () => {
       mounted = false;
+      resolveBoot();
     };
-  }, [refreshShareUrl, showToast, triggerCloudSync]);
+  }, [checkForNewerAppBundle, refreshShareUrl, showToast, triggerCloudSync]);
 
   // Foreground wakeup auto-sync (visibilitychange + window focus + online) for iPhone Safari <-> Home Screen PWA
   useEffect(() => {
     if (isReadOnlyShareView) return;
 
     const onWake = () => {
-      if (document.visibilityState === 'visible' && getSavedPasshash()) {
-        void triggerCloudSync(undefined, hasUnsyncedChanges, false);
+      if (document.visibilityState === 'visible') {
+        void checkForNewerAppBundle();
+        void recoverPasshashFromIndexedDB().then((h) => {
+          if (h) {
+            setHasPasscode(true);
+            void triggerCloudSync(undefined, hasUnsyncedChanges, false);
+          }
+        });
       }
     };
 
     const onOnline = () => {
-      if (getSavedPasshash()) {
-        void triggerCloudSync(undefined, true, false);
-      }
+      void recoverPasshashFromIndexedDB().then((h) => {
+        if (h) {
+          setHasPasscode(true);
+          void triggerCloudSync(undefined, true, false);
+        }
+      });
     };
 
     document.addEventListener('visibilitychange', onWake);
@@ -230,7 +318,7 @@ export const App: React.FC = () => {
       window.removeEventListener('focus', onWake);
       window.removeEventListener('online', onOnline);
     };
-  }, [isReadOnlyShareView, hasUnsyncedChanges, triggerCloudSync]);
+  }, [checkForNewerAppBundle, isReadOnlyShareView, hasUnsyncedChanges, triggerCloudSync]);
 
   // Automatic background retry when cloud push is pending
   useEffect(() => {
@@ -280,7 +368,7 @@ export const App: React.FC = () => {
         };
         vaultRef.current = next;
         saveLocalVault(next);
-        if (getSavedPasshash()) {
+        if (hasPasscode || getSavedPasshash()) {
           void triggerCloudSync(next, true, false);
         }
         return next;
@@ -572,6 +660,7 @@ export const App: React.FC = () => {
   const handleDisconnectPasscode = () => {
     savePasshash(null);
     setHasPasscode(false);
+    setPairUrl(null);
     setShareUrl(null);
     setFingerprintBadge(null);
     setHasUnsyncedChanges(false);
@@ -627,8 +716,8 @@ export const App: React.FC = () => {
                 {isReadOnlyShareView
                   ? '👀 唯讀展示模式 · 點右上可回到自己的衣櫥'
                   : `${activeItemsForStylist.length} 件衣服 · ${lastSyncedText}${
-                      fingerprintBadge ? ` · ${fingerprintBadge}` : ''
-                    }`}
+                      fingerprintBadge ? ` · ${fingerprintBadge}` : ' · 未綁定通行碼'
+                    } · ${APP_SYNC_VERSION}`}
               </p>
             </div>
           </div>
@@ -723,6 +812,23 @@ export const App: React.FC = () => {
 
       {/* Main Content Container */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-5 space-y-4">
+        {hasNewerAppBundle && (
+          <div className="p-3 rounded-2xl bg-[#F2CA62]/45 border border-[#DEC273] flex items-center justify-between gap-2 text-xs font-bold text-[#2D251E]">
+            <span>✨ 偵測到最新雲端同步程式版本，點擊右側即可安全同步並載入最新版！</span>
+            <button
+              type="button"
+              onClick={async () => {
+                await triggerCloudSync(undefined, true, false);
+                const url = new URL(window.location.href);
+                url.searchParams.set('v', String(Date.now()));
+                window.location.replace(url.toString());
+              }}
+              className="bobo-btn px-3 py-1.5 rounded-xl bg-[#C48E63] text-[#FFFDF9] text-xs font-bold shrink-0"
+            >
+              立即無損更新
+            </button>
+          </div>
+        )}
         {!hasPasscode && !isReadOnlyShareView && (
           <div className="p-3.5 rounded-2xl bg-[#FFFDF9] border border-[#E7D6BE] shadow-sm space-y-2">
             <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#422B1D]">
@@ -886,6 +992,7 @@ export const App: React.FC = () => {
       {isSyncModalOpen && (
         <SyncSettingsModal
           hasPasscode={hasPasscode}
+          pairUrl={pairUrl}
           shareUrl={shareUrl}
           fingerprintBadge={fingerprintBadge}
           hasUnsyncedChanges={hasUnsyncedChanges}

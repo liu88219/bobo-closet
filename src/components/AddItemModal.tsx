@@ -335,7 +335,10 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
             {/* Photo / Vector Preview Area */}
             <div className="flex items-center gap-4 p-3.5 rounded-2xl bg-[#EFECE4]/70 border border-[#DDD7C9]">
               <div className="w-24 h-24 shrink-0 rounded-2xl overflow-hidden bg-[#FAF8F3] border border-[#DDD7C9] relative">
-                {imageUrl ? (
+                {imageUrl &&
+                (imageUrl.startsWith('data:image/') ||
+                  imageUrl.startsWith('./') ||
+                  imageUrl.startsWith('http')) ? (
                   <img src={imageUrl} alt="預覽" className="w-full h-full object-cover" />
                 ) : (
                   <GarmentVectorIllustration

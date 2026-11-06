@@ -31,8 +31,11 @@ const IDB_SNAPSHOTS_KEY = 'history_snapshots_v1';
 const IDB_TIMEOUT_MS = 8000;
 
 const CLOUD_IMG_PREFIX = 'cloudimg:';
+const LOCAL_IDB_IMG_MARKER = 'localidb:stored';
 const CLOUD_CHUNK_PREFIX = 'CLCHUNK1:';
 const CLOUD_CHUNK_MAX_CHARS = 40000;
+
+export const APP_SYNC_VERSION = 'v2.3';
 
 const FINGERPRINT_EMOJIS = ['🧸', '🥐', '🍮', '🍪', '🥛', '🍑', '🌼', '🧺'];
 
@@ -57,12 +60,15 @@ export interface SyncVaultOutcome {
   synced: boolean;
   pulledFromCloud: boolean;
   pushedToCloud: boolean;
+  partialPhotoPending?: boolean;
   fingerprintBadge: string | null;
   errorMessage?: string;
 }
 
-// In-memory photo mirror so environments without IndexedDB (or private browsing) never lose photos in-session
+// In-memory mirrors so environments with full shared-origin 5MB localStorage or private browsing never fail sync
 const memoryImgCache = new Map<string, string>();
+let memoryPasshash: string | null = null;
+let memoryLinkedHashes: string[] = [];
 
 function sanitizeToken(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -161,29 +167,46 @@ export async function hashOwnerPasscode(passcode: string): Promise<string> {
 }
 
 export function getSavedPasshash(): string | null {
+  if (memoryPasshash && memoryPasshash.length >= 12) {
+    return memoryPasshash;
+  }
   try {
     if (typeof localStorage === 'undefined') return null;
     const val = localStorage.getItem(PASSHASH_STORAGE_KEY);
-    return val && val.length >= 12 ? val : null;
+    if (val && val.length >= 12) {
+      memoryPasshash = val;
+      return val;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
 export function savePasshash(passhash: string | null): void {
+  memoryPasshash = passhash && passhash.length >= 12 ? passhash : null;
+  if (!memoryPasshash) {
+    memoryLinkedHashes = [];
+  }
   try {
     if (typeof localStorage !== 'undefined') {
-      if (!passhash) {
+      if (!memoryPasshash) {
         localStorage.removeItem(PASSHASH_STORAGE_KEY);
         localStorage.removeItem(LINKED_PASSHASHES_KEY);
       } else {
-        localStorage.setItem(PASSHASH_STORAGE_KEY, passhash);
+        try {
+          localStorage.setItem(PASSHASH_STORAGE_KEY, memoryPasshash);
+        } catch {
+          // Free bloated legacy Base64 backup key if shared-origin 5MB localStorage is full, then retry
+          localStorage.removeItem(LAST_NONEMPTY_VAULT_KEY);
+          localStorage.setItem(PASSHASH_STORAGE_KEY, memoryPasshash);
+        }
       }
     }
   } catch {
-    // Shared-origin localStorage may be full; IndexedDB below still persists reliably
+    // Shared-origin localStorage may still be full from sibling apps; memoryPasshash + IndexedDB persist reliably
   }
-  void idbPut(IDB_VAULT_STORE, IDB_PASSHASH_KEY, passhash || '');
+  void idbPut(IDB_VAULT_STORE, IDB_PASSHASH_KEY, memoryPasshash || '');
 }
 
 export async function recoverPasshashFromIndexedDB(): Promise<string | null> {
@@ -191,10 +214,11 @@ export async function recoverPasshashFromIndexedDB(): Promise<string | null> {
   if (syncVal) return syncVal;
   const idbVal = await idbGet<string>(IDB_VAULT_STORE, IDB_PASSHASH_KEY);
   if (idbVal && idbVal.length >= 12) {
+    memoryPasshash = idbVal;
     try {
       localStorage.setItem(PASSHASH_STORAGE_KEY, idbVal);
     } catch {
-      // ignore quota error
+      // ignore quota error; memoryPasshash is now populated
     }
     return idbVal;
   }
@@ -203,18 +227,25 @@ export async function recoverPasshashFromIndexedDB(): Promise<string | null> {
 
 function getLinkedVariantHashes(): string[] {
   try {
-    if (typeof localStorage === 'undefined') return [];
-    const raw = localStorage.getItem(LINKED_PASSHASHES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string' && x.length >= 12) : [];
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(LINKED_PASSHASHES_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const valid = parsed.filter((x) => typeof x === 'string' && x.length >= 12);
+          memoryLinkedHashes = Array.from(new Set([...memoryLinkedHashes, ...valid]));
+        }
+      }
+    }
   } catch {
-    return [];
+    // ignore
   }
+  return memoryLinkedHashes;
 }
 
 function saveLinkedVariantHashes(hashes: string[]): void {
   const unique = Array.from(new Set(hashes.filter((h) => h && h.length >= 12)));
+  memoryLinkedHashes = unique;
   try {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(LINKED_PASSHASHES_KEY, JSON.stringify(unique));
@@ -222,6 +253,7 @@ function saveLinkedVariantHashes(hashes: string[]): void {
   } catch {
     // ignore
   }
+  void idbPut(IDB_VAULT_STORE, LINKED_PASSHASHES_KEY, unique);
 }
 
 export async function deriveSyncChannels(
@@ -247,65 +279,71 @@ export async function deriveSyncChannels(
  * 寫入 textdb.online 單一分片：
  * 1. 強制使用 application/x-www-form-urlencoded + URLSearchParams 防止 '+' 變空白字元
  * 2. 強制檢查回傳 JSON `status === 1`，防止超過 20 萬字元上限時 HTTP 200 `{status: 0}` 假成功！
+ * 3. 嚴禁設定 `keepalive: true`！WebKit / Blink Fetch 規範限制同頁面併發 keepalive 總計不得超過 64 KiB，
+ *    一旦多張照片或雙雲端分片同時送出 > 64 KiB 會立即拋出 TypeError: Load failed！
  */
 async function writeTextDbOnlineSingle(key: string, value: string): Promise<boolean> {
-  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 9000) : null;
-  try {
-    const body = new URLSearchParams({ key, value }).toString();
-    const init: RequestInit = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-      signal: ctrl?.signal,
-    };
-    if (body.length < 55000) {
-      init.keepalive = true;
-    }
-    const res = await fetch(TEXTDB_UPDATE_URL, init);
-    if (!res.ok) return false;
-    const txt = (await res.text()).trim();
-    if (!txt) return true;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : null;
     try {
-      const parsed = JSON.parse(txt) as { status?: number };
-      if (parsed && typeof parsed === 'object' && 'status' in parsed) {
-        return Number(parsed.status) === 1;
+      const body = new URLSearchParams({ key, value }).toString();
+      const res = await fetch(TEXTDB_UPDATE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: ctrl?.signal,
+      });
+      if (!res.ok) {
+        if (attempt === 0) continue;
+        return false;
       }
+      const txt = (await res.text()).trim();
+      if (!txt) return true;
+      try {
+        const parsed = JSON.parse(txt) as { status?: number };
+        if (parsed && typeof parsed === 'object' && 'status' in parsed) {
+          const ok = Number(parsed.status) === 1;
+          if (!ok && attempt === 0) continue;
+          return ok;
+        }
+      } catch {
+        // Non-JSON 200 OK fallback
+      }
+      return true;
     } catch {
-      // Non-JSON 200 OK fallback
+      if (attempt === 0) continue;
+      return false;
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    return true;
-  } catch {
-    return false;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
+  return false;
 }
 
 /**
  * 雙雲端備援寫入 (textdb.dev)，當 textdb.online 瞬斷或限流時仍可 100% 跨瀏覽器互通
  */
 async function writeTextDbDevSingle(key: string, value: string): Promise<boolean> {
-  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 9000) : null;
-  try {
-    const bodyStr = JSON.stringify({ payload: value });
-    const init: RequestInit = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: bodyStr,
-      signal: ctrl?.signal,
-    };
-    if (bodyStr.length < 55000) {
-      init.keepalive = true;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : null;
+    try {
+      const bodyStr = JSON.stringify({ payload: value });
+      const res = await fetch(`${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyStr,
+        signal: ctrl?.signal,
+      });
+      if (res.ok) return true;
+    } catch {
+      // retry once
+    } finally {
+      if (timer) clearTimeout(timer);
     }
-    const res = await fetch(`${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}`, init);
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
+  return false;
 }
 
 async function writeChunkedToProvider(
@@ -621,14 +659,20 @@ export function injectRepoManagedCatalog(vault: ClosetVaultState): ClosetVaultSt
     if ((deletedItems[item.id] || 0) > (item.updatedAt || 1000)) continue;
     const existing = itemMap.get(item.id);
     if (!existing || (item.updatedAt || 1000) >= (existing.updatedAt || 1000)) {
-      const hasCustomUserPhoto = Boolean(item.imageUrl?.startsWith('data:image/'));
+      const hasCustomUserPhoto = Boolean(
+        item.imageUrl?.startsWith('data:image/') ||
+          item.imageUrl?.startsWith(CLOUD_IMG_PREFIX) ||
+          item.imageUrl === LOCAL_IDB_IMG_MARKER
+      );
       itemMap.set(item.id, {
         ...item,
         imageUrl: item.imageUrl || existing?.imageUrl,
         flatlayUrl: hasCustomUserPhoto
           ? item.flatlayUrl
           : item.flatlayUrl || existing?.flatlayUrl,
-        realCropUrl: item.realCropUrl || existing?.realCropUrl,
+        realCropUrl: hasCustomUserPhoto
+          ? item.realCropUrl
+          : item.realCropUrl || existing?.realCropUrl,
         pastelUrl: hasCustomUserPhoto
           ? item.pastelUrl
           : item.pastelUrl || existing?.pastelUrl,
@@ -730,7 +774,7 @@ export async function loadFullLocalVaultState(): Promise<ClosetVaultState> {
         if (fromMem?.startsWith('data:image/')) return fromMem;
         const fromIdb = await idbGet<string>(IDB_IMG_STORE, memKey);
         if (fromIdb?.startsWith('data:image/')) return fromIdb;
-        return fieldVal;
+        return fieldVal === LOCAL_IDB_IMG_MARKER ? undefined : fieldVal;
       };
 
       const imageUrl = await resolveLocalPic(item.imageUrl, 'imageUrl');
@@ -759,7 +803,10 @@ export async function loadFullLocalVaultState(): Promise<ClosetVaultState> {
       if (localSelfie && localSelfie.startsWith('data:image/')) {
         return { ...outfit, selfieUrl: localSelfie };
       }
-      return outfit;
+      return {
+        ...outfit,
+        selfieUrl: outfit.selfieUrl === LOCAL_IDB_IMG_MARKER ? undefined : outfit.selfieUrl,
+      };
     })
   );
 
@@ -775,14 +822,14 @@ function buildSlimVaultForLocalStorage(vault: ClosetVaultState): string {
     ...vault,
     items: vault.items.map((i) => ({
       ...i,
-      imageUrl: i.imageUrl?.startsWith('data:image/') ? undefined : i.imageUrl,
-      realCropUrl: i.realCropUrl?.startsWith('data:image/') ? undefined : i.realCropUrl,
-      flatlayUrl: i.flatlayUrl?.startsWith('data:image/') ? undefined : i.flatlayUrl,
-      pastelUrl: i.pastelUrl?.startsWith('data:image/') ? undefined : i.pastelUrl,
+      imageUrl: i.imageUrl?.startsWith('data:image/') ? LOCAL_IDB_IMG_MARKER : i.imageUrl,
+      realCropUrl: i.realCropUrl?.startsWith('data:image/') ? LOCAL_IDB_IMG_MARKER : i.realCropUrl,
+      flatlayUrl: i.flatlayUrl?.startsWith('data:image/') ? LOCAL_IDB_IMG_MARKER : i.flatlayUrl,
+      pastelUrl: i.pastelUrl?.startsWith('data:image/') ? LOCAL_IDB_IMG_MARKER : i.pastelUrl,
     })),
     outfits: vault.outfits.map((o) => ({
       ...o,
-      selfieUrl: o.selfieUrl?.startsWith('data:image/') ? undefined : o.selfieUrl,
+      selfieUrl: o.selfieUrl?.startsWith('data:image/') ? LOCAL_IDB_IMG_MARKER : o.selfieUrl,
     })),
   };
   return JSON.stringify(slim);
@@ -820,9 +867,19 @@ export function saveLocalVault(vault: ClosetVaultState): void {
   try {
     if (typeof localStorage !== 'undefined') {
       const slimJson = buildSlimVaultForLocalStorage(vault);
-      localStorage.setItem(LOCAL_VAULT_KEY, slimJson);
-      if (hasEdits) {
-        localStorage.setItem(LAST_NONEMPTY_VAULT_KEY, slimJson);
+      try {
+        localStorage.setItem(LOCAL_VAULT_KEY, slimJson);
+        if (hasEdits) {
+          localStorage.setItem(LAST_NONEMPTY_VAULT_KEY, slimJson);
+        }
+      } catch {
+        // Purge bloated pre-v2.2 Base64 backups first to reclaim localStorage quota, then retry
+        localStorage.removeItem(LAST_NONEMPTY_VAULT_KEY);
+        localStorage.removeItem(LOCAL_VAULT_KEY);
+        localStorage.setItem(LOCAL_VAULT_KEY, slimJson);
+        if (hasEdits) {
+          localStorage.setItem(LAST_NONEMPTY_VAULT_KEY, slimJson);
+        }
       }
     }
   } catch {
@@ -875,12 +932,18 @@ function pickBestVisualField(
   newerVal: string | undefined,
   olderVal: string | undefined
 ): string | undefined {
-  if (newerVal && !newerVal.startsWith(CLOUD_IMG_PREFIX)) {
-    return newerVal;
-  }
-  if (olderVal && !olderVal.startsWith(CLOUD_IMG_PREFIX)) {
+  if (newerVal?.startsWith('data:image/')) return newerVal;
+  if (olderVal?.startsWith('data:image/') && (!newerVal || newerVal === LOCAL_IDB_IMG_MARKER || newerVal.startsWith(CLOUD_IMG_PREFIX))) {
     return olderVal;
   }
+  if (newerVal && newerVal !== LOCAL_IDB_IMG_MARKER && !newerVal.startsWith(CLOUD_IMG_PREFIX)) {
+    return newerVal;
+  }
+  if (olderVal && olderVal !== LOCAL_IDB_IMG_MARKER && !olderVal.startsWith(CLOUD_IMG_PREFIX)) {
+    return olderVal;
+  }
+  if (newerVal?.startsWith(CLOUD_IMG_PREFIX)) return newerVal;
+  if (olderVal?.startsWith(CLOUD_IMG_PREFIX)) return olderVal;
   return newerVal || olderVal;
 }
 
@@ -1019,19 +1082,22 @@ async function makePhotoShardToken(
 async function uploadDataUrlShard(
   imgPrefix: string,
   shardSuffix: string,
-  dataUrl: string
+  dataUrl: string,
+  forceUpload = false
 ): Promise<boolean> {
   const shardKey = `${imgPrefix}_${shardSuffix}`;
-  const verifiedMarker = await idbGet<string>(IDB_VAULT_STORE, `uploaded_v2:${shardKey}`);
-  if (verifiedMarker === '1') {
-    return true;
+  if (!forceUpload) {
+    const verifiedMarker = await idbGet<string>(IDB_VAULT_STORE, `uploaded_v3:${shardKey}`);
+    if (verifiedMarker === '1') {
+      return true;
+    }
   }
   const compressed = LZString.compressToEncodedURIComponent(dataUrl);
   const ok = await writeTextDb(shardKey, compressed);
   if (ok) {
     memoryImgCache.set(shardKey, dataUrl);
     await idbPut(IDB_IMG_STORE, shardKey, dataUrl);
-    await idbPut(IDB_VAULT_STORE, `uploaded_v2:${shardKey}`, '1');
+    await idbPut(IDB_VAULT_STORE, `uploaded_v3:${shardKey}`, '1');
   }
   return ok;
 }
@@ -1097,7 +1163,10 @@ async function hydrateRemoteVaultPhotos(
           return localField;
         }
         const fetched = await hydrateCloudImgToken(remoteField, imgPrefixes, 'item');
-        return fetched || (localField?.startsWith('data:image/') ? localField : undefined);
+        if (fetched) return fetched;
+        if (localField?.startsWith('data:image/')) return localField;
+        // Preserve cloudimg: token if network transiently missed so next poll hydrates it without losing photo ref!
+        return remoteField;
       };
 
       const imageUrl = await resolveField(item.imageUrl, localMatch?.imageUrl);
@@ -1131,7 +1200,9 @@ async function hydrateRemoteVaultPhotos(
           ...outfit,
           selfieUrl:
             imgData ||
-            (localMatch?.selfieUrl?.startsWith('data:image/') ? localMatch.selfieUrl : undefined),
+            (localMatch?.selfieUrl?.startsWith('data:image/')
+              ? localMatch.selfieUrl
+              : outfit.selfieUrl),
         };
       }
       return outfit;
@@ -1145,18 +1216,31 @@ async function hydrateRemoteVaultPhotos(
   };
 }
 
+function visualFieldSig(v: string | undefined): string {
+  if (!v || v === LOCAL_IDB_IMG_MARKER) return '0';
+  if (v.startsWith('data:image/')) return `d:${v.length}`;
+  return v.slice(0, 32);
+}
+
 function vaultStateDigest(v: ClosetVaultState): string {
   const itemSig = v.items
     .map(
       (i) =>
-        `${i.id}:${i.updatedAt || 0}:${i.wearCount || 0}:${i.inLaundry ? 1 : 0}:${
-          i.isFavorite ? 1 : 0
-        }`
+        `${i.id}:${i.updatedAt || 0}:${i.name}:${i.subCategory}:${i.colorTone}:${
+          i.wearCount || 0
+        }:${i.inLaundry ? 1 : 0}:${i.isFavorite ? 1 : 0}:${visualFieldSig(
+          i.imageUrl
+        )}:${visualFieldSig(i.realCropUrl)}:${visualFieldSig(i.flatlayUrl)}:${visualFieldSig(
+          i.pastelUrl
+        )}`
     )
     .sort()
     .join('|');
   const outfitSig = v.outfits
-    .map((o) => `${o.id}:${o.updatedAt || 0}:${o.wornDate || ''}`)
+    .map(
+      (o) =>
+        `${o.id}:${o.updatedAt || 0}:${o.title}:${o.wornDate || ''}:${visualFieldSig(o.selfieUrl)}`
+    )
     .sort()
     .join('|');
   const delItemSig = Object.entries(v.deletedItemIds || {})
@@ -1173,9 +1257,12 @@ function vaultStateDigest(v: ClosetVaultState): string {
 
 async function prepareAndPushCompactVault(
   merged: ClosetVaultState,
-  targetChannelsList: DerivedSyncChannels[]
-): Promise<boolean> {
-  if (targetChannelsList.length === 0) return false;
+  targetChannelsList: DerivedSyncChannels[],
+  forceUploadShards = false
+): Promise<{ pushedOk: boolean; allShardsUploaded: boolean }> {
+  if (targetChannelsList.length === 0) {
+    return { pushedOk: false, allShardsUploaded: false };
+  }
   const primaryChannels = targetChannelsList[0];
 
   // Collect & deduplicate every inline data:image/* across ALL 4 garment image fields + outfit selfieUrl
@@ -1185,7 +1272,9 @@ async function prepareAndPushCompactVault(
     entityKey: string,
     val: string | undefined
   ): Promise<string | undefined> => {
-    if (!val || !val.startsWith('data:image/')) return val;
+    if (!val) return undefined;
+    if (val === LOCAL_IDB_IMG_MARKER) return undefined;
+    if (!val.startsWith('data:image/')) return val;
     const { token, shardSuffix } = await makePhotoShardToken(entityKey, val);
     if (!pendingUploads.has(shardSuffix)) {
       pendingUploads.set(shardSuffix, { shardSuffix, dataUrl: val });
@@ -1218,22 +1307,27 @@ async function prepareAndPushCompactVault(
   }
 
   const uploadEntries = Array.from(pendingUploads.values());
-  const BATCH_SIZE = 3;
+  let allShardsUploaded = true;
+  const BATCH_SIZE = 2;
   for (let i = 0; i < uploadEntries.length; i += BATCH_SIZE) {
     const batch = uploadEntries.slice(i, i + BATCH_SIZE);
     const batchResults = await Promise.all(
       batch.map(async ({ shardSuffix, dataUrl }) => {
         const resPerCh = await Promise.all(
-          targetChannelsList.map((ch) => uploadDataUrlShard(ch.imgPrefix, shardSuffix, dataUrl))
+          targetChannelsList.map((ch) =>
+            uploadDataUrlShard(ch.imgPrefix, shardSuffix, dataUrl, forceUploadShards)
+          )
         );
         return resPerCh.some(Boolean);
       })
     );
     if (batchResults.some((ok) => !ok)) {
-      return false;
+      allShardsUploaded = false;
     }
   }
 
+  // Always push compactVaultForCloud even if one photo shard needs background retry,
+  // so item names, wearCounts, categories, outfits & succeeded photos appear in Browser immediately!
   const compactVaultForCloud: ClosetVaultState = {
     ...merged,
     items: compactItems,
@@ -1264,7 +1358,7 @@ async function prepareAndPushCompactVault(
     }
   }
 
-  return pushedOk;
+  return { pushedOk, allShardsUploaded };
 }
 
 /**
@@ -1286,8 +1380,13 @@ export async function syncVaultWithCloud(
     };
   }
 
+  const idbLinked = await idbGet<string[]>(IDB_VAULT_STORE, LINKED_PASSHASHES_KEY);
   const candidateHashes = Array.from(
-    new Set<string>([primaryPasshash, ...getLinkedVariantHashes()])
+    new Set<string>([
+      primaryPasshash,
+      ...getLinkedVariantHashes(),
+      ...(Array.isArray(idbLinked) ? idbLinked : []),
+    ])
   );
 
   const allChannels: DerivedSyncChannels[] = [];
@@ -1336,6 +1435,8 @@ export async function syncVaultWithCloud(
   // Step 3: Determine if cloud needs to be updated
   const hasRealEdits =
     (merged.updatedAt || 1000) > 1000 ||
+    merged.items.some((i) => !i.isSample) ||
+    merged.outfits.some((o) => !o.isSample) ||
     Object.keys(merged.deletedItemIds || {}).length > 0 ||
     Object.keys(merged.deletedOutfitIds || {}).length > 0 ||
     Object.keys(merged.customSubCategories || {}).length > 0;
@@ -1348,8 +1449,11 @@ export async function syncVaultWithCloud(
   const shouldPush = hasRealEdits && (forcePush || differsFromRemote);
 
   let pushedToCloud = false;
+  let allShardsUploaded = true;
   if (shouldPush) {
-    pushedToCloud = await prepareAndPushCompactVault(merged, activeRemoteChannels);
+    const pushRes = await prepareAndPushCompactVault(merged, activeRemoteChannels, forcePush);
+    pushedToCloud = pushRes.pushedOk;
+    allShardsUploaded = pushRes.allShardsUploaded;
   }
 
   saveLocalVault(merged);
@@ -1362,6 +1466,18 @@ export async function syncVaultWithCloud(
       pushedToCloud: false,
       fingerprintBadge: primaryChannels.fingerprintBadge,
       errorMessage: '雲端網路暫時忙碌，修改已安全保存在本機雙重資料庫，稍後將自動重試同步！',
+    };
+  }
+
+  if (shouldPush && !allShardsUploaded) {
+    return {
+      vault: merged,
+      synced: true,
+      pulledFromCloud: Boolean(combinedRemote),
+      pushedToCloud: true,
+      partialPhotoPending: true,
+      fingerprintBadge: primaryChannels.fingerprintBadge,
+      errorMessage: '單品資料已同步至雲端，部分高畫質照片正在背景續傳中…',
     };
   }
 
