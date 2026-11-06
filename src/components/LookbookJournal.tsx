@@ -8,7 +8,7 @@ import {
   WardrobeItem,
 } from '../types/wardrobe';
 import { compressClothingImage } from '../utils/imageCompressor';
-import { WardrobeItemVisual } from './MascotIllustrations';
+import { FullBodyOutfitCollage } from './FullBodyOutfitCollage';
 
 interface LookbookJournalProps {
   outfits: SavedOutfit[];
@@ -168,21 +168,8 @@ export const LookbookJournal: React.FC<LookbookJournalProps> = ({
                         </div>
                       )}
 
-                    <div className="flex-1 grid grid-cols-3 gap-1.5 p-2 rounded-2xl bg-[#FAF5EC] border border-[#E7D6BE]">
-                      {matchedItems.map((item) => (
-                        <div key={item.id} className="space-y-0.5">
-                          <WardrobeItemVisual
-                            imageUrl={item.imageUrl}
-                            silhouette={item.silhouette}
-                            colorTone={item.colorTone}
-                            name={item.name}
-                            className="w-full aspect-square !rounded-xl bg-[#FFFDF9]"
-                          />
-                          <div className="text-[10px] font-bold text-[#422B1D] truncate text-center">
-                            {item.name}
-                          </div>
-                        </div>
-                      ))}
+                    <div className="flex-1 min-w-0">
+                      <FullBodyOutfitCollage items={matchedItems} compact />
                     </div>
                   </div>
 

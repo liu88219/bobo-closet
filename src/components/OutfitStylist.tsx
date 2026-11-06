@@ -32,6 +32,7 @@ import {
   StylistStudioIllustration,
   WardrobeItemVisual,
 } from './MascotIllustrations';
+import { FullBodyOutfitCollage } from './FullBodyOutfitCollage';
 
 interface OutfitStylistProps {
   items: WardrobeItem[];
@@ -457,23 +458,8 @@ export const OutfitStylist: React.FC<OutfitStylistProps> = ({
                       </div>
                     </div>
 
-                    {/* Visual Flat-Lay Collage */}
-                    <div className="grid grid-cols-3 gap-2 p-2.5 rounded-2xl bg-[#FAF5EC] border border-[#E7D6BE]">
-                      {prop.items.map((item) => (
-                        <div key={item.id} className="space-y-1">
-                          <WardrobeItemVisual
-                            imageUrl={item.imageUrl}
-                            silhouette={item.silhouette}
-                            colorTone={item.colorTone}
-                            name={item.name}
-                            className="w-full aspect-square !rounded-xl bg-[#FFFDF9]"
-                          />
-                          <div className="text-[10px] font-bold text-[#422B1D] truncate text-center px-0.5">
-                            {item.name}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    {/* Full-Body Vertical Proportion Collage + Grid Toggle */}
+                    <FullBodyOutfitCollage items={prop.items} />
 
                     {/* Color Formula & Stylist Note */}
                     <div className="space-y-2 text-xs">

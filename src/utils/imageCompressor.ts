@@ -5,6 +5,14 @@ export interface ProcessedWardrobePhoto {
   suggestedColorTone: ColorTone;
 }
 
+/** Normalized crop rectangle (0..1 relative to source image width & height) */
+export interface NormalizedCropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace('#', '');
   const num = parseInt(clean, 16);
@@ -12,7 +20,7 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 /**
- * 從衣服中央區域取樣像素，自動推測最接近的奶油衣櫥色系標籤
+ * 從裁切後的單品中央區域取樣像素，自動推測最接近的奶油衣櫥色系標籤
  */
 export function detectClosestColorTone(
   ctx: CanvasRenderingContext2D,
@@ -20,10 +28,10 @@ export function detectClosestColorTone(
   height: number
 ): ColorTone {
   try {
-    const startX = Math.floor(width * 0.25);
-    const startY = Math.floor(height * 0.22);
-    const sampleW = Math.max(1, Math.floor(width * 0.5));
-    const sampleH = Math.max(1, Math.floor(height * 0.55));
+    const startX = Math.floor(width * 0.22);
+    const startY = Math.floor(height * 0.2);
+    const sampleW = Math.max(1, Math.floor(width * 0.56));
+    const sampleH = Math.max(1, Math.floor(height * 0.6));
     const data = ctx.getImageData(startX, startY, sampleW, sampleH).data;
 
     let rSum = 0;
@@ -50,7 +58,6 @@ export function detectClosestColorTone(
 
     (Object.keys(COLOR_TONE_META) as ColorTone[]).forEach((tone) => {
       const [tr, tg, tb] = hexToRgb(COLOR_TONE_META[tone].hex);
-      // Weighted perceptual RGB distance
       const dr = avgR - tr;
       const dg = avgG - tg;
       const db = avgB - tb;
@@ -67,60 +74,91 @@ export function detectClosestColorTone(
   }
 }
 
+export function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('無法讀取照片檔案'));
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(file);
+  });
+}
+
 /**
- * 將手機拍攝或相簿上傳的衣服高解析照片壓縮為輕量清晰 WebP / JPEG (約 18~30KB)，
- * 確保跨瀏覽器雲端同步 (iPhone 主畫面 App ↔ Safari) 快速秒傳不爆容量！
+ * 依據使用者框選的局部區域 (NormalizedCropRect) 進行精準裁切、壓縮與單品色系辨識
  */
-export function compressClothingImage(
+export function cropAndCompressDataUrl(
+  sourceDataUrl: string,
+  cropRect: NormalizedCropRect = { x: 0, y: 0, width: 1, height: 1 },
+  maxDimension = 560,
+  quality = 0.78
+): Promise<ProcessedWardrobePhoto> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error('照片格式無法解析'));
+    img.onload = () => {
+      const clampedX = Math.max(0, Math.min(0.95, cropRect.x));
+      const clampedY = Math.max(0, Math.min(0.95, cropRect.y));
+      const clampedW = Math.max(0.05, Math.min(1 - clampedX, cropRect.width));
+      const clampedH = Math.max(0.05, Math.min(1 - clampedY, cropRect.height));
+
+      const srcX = Math.round(clampedX * img.width);
+      const srcY = Math.round(clampedY * img.height);
+      const srcW = Math.max(1, Math.round(clampedW * img.width));
+      const srcH = Math.max(1, Math.round(clampedH * img.height));
+
+      let targetW = srcW;
+      let targetH = srcH;
+
+      if (targetW > maxDimension || targetH > maxDimension) {
+        if (targetW >= targetH) {
+          targetH = Math.max(1, Math.round((targetH * maxDimension) / targetW));
+          targetW = maxDimension;
+        } else {
+          targetW = Math.max(1, Math.round((targetW * maxDimension) / targetH));
+          targetH = maxDimension;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = targetW;
+      canvas.height = targetH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        reject(new Error('無法初始化畫布'));
+        return;
+      }
+
+      // Warm matte cream backdrop for transparent PNGs
+      ctx.fillStyle = '#FAF8F3';
+      ctx.fillRect(0, 0, targetW, targetH);
+      ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+
+      const suggestedColorTone = detectClosestColorTone(ctx, targetW, targetH);
+
+      let dataUrl = canvas.toDataURL('image/webp', quality);
+      if (!dataUrl.startsWith('data:image/webp')) {
+        dataUrl = canvas.toDataURL('image/jpeg', quality);
+      }
+
+      resolve({ dataUrl, suggestedColorTone });
+    };
+    img.src = sourceDataUrl;
+  });
+}
+
+/**
+ * 將整張照片直接壓縮為輕量清晰 WebP / JPEG (保留向後相容與 OOTD 自拍照使用)
+ */
+export async function compressClothingImage(
   file: File,
   maxDimension = 560,
   quality = 0.76
 ): Promise<ProcessedWardrobePhoto> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('無法讀取照片檔案'));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('照片格式無法解析'));
-      img.onload = () => {
-        let targetW = img.width;
-        let targetH = img.height;
-
-        if (targetW > maxDimension || targetH > maxDimension) {
-          if (targetW >= targetH) {
-            targetH = Math.round((targetH * maxDimension) / targetW);
-            targetW = maxDimension;
-          } else {
-            targetW = Math.round((targetW * maxDimension) / targetH);
-            targetH = maxDimension;
-          }
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = targetW;
-        canvas.height = targetH;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('無法初始化畫布'));
-          return;
-        }
-
-        // Fill warm cream background for transparent PNGs so all items look unified!
-        ctx.fillStyle = '#FFFDF9';
-        ctx.fillRect(0, 0, targetW, targetH);
-        ctx.drawImage(img, 0, 0, targetW, targetH);
-
-        const suggestedColorTone = detectClosestColorTone(ctx, targetW, targetH);
-
-        let dataUrl = canvas.toDataURL('image/webp', quality);
-        if (!dataUrl.startsWith('data:image/webp')) {
-          dataUrl = canvas.toDataURL('image/jpeg', quality);
-        }
-
-        resolve({ dataUrl, suggestedColorTone });
-      };
-      img.src = String(reader.result);
-    };
-    reader.readAsDataURL(file);
-  });
+  const rawDataUrl = await readFileAsDataUrl(file);
+  return cropAndCompressDataUrl(
+    rawDataUrl,
+    { x: 0, y: 0, width: 1, height: 1 },
+    maxDimension,
+    quality
+  );
 }

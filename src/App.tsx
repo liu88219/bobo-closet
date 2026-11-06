@@ -206,7 +206,7 @@ export const App: React.FC = () => {
   );
 
   // Item CRUD handlers
-  const handleSaveItem = (savedItem: WardrobeItem) => {
+  const upsertItemInVault = (savedItem: WardrobeItem) => {
     commitVaultUpdate((prev) => {
       const exists = prev.items.some((i) => i.id === savedItem.id);
       const nextItems = exists
@@ -220,9 +220,18 @@ export const App: React.FC = () => {
         deletedItemIds: nextDeleted,
       };
     });
+  };
+
+  const handleSaveItem = (savedItem: WardrobeItem) => {
+    upsertItemInVault(savedItem);
     setIsAddModalOpen(false);
     setEditingItem(null);
     showToast(`🧺 已將「${savedItem.name}」收入奶油衣櫥！`);
+  };
+
+  const handleSaveAndContinueSamePhoto = (savedItem: WardrobeItem) => {
+    upsertItemInVault(savedItem);
+    showToast(`✂️ 已先存入「${savedItem.name}」！請框選同張照片的下一件單品`);
   };
 
   const handleDeleteItem = (itemId: string) => {
@@ -653,6 +662,7 @@ export const App: React.FC = () => {
             setEditingItem(null);
           }}
           onSave={handleSaveItem}
+          onSaveAndContinueSamePhoto={handleSaveAndContinueSamePhoto}
           onDelete={editingItem ? handleDeleteItem : undefined}
         />
       )}
