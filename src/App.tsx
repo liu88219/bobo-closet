@@ -443,20 +443,20 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col pb-24 sm:pb-12">
       {/* Top Cream Header */}
-      <header className="sticky top-0 z-30 bg-[#FAF5EC]/90 backdrop-blur-md border-b border-[#E7D6BE]">
+      <header className="sticky top-0 z-30 bg-[#FAF8F3]/92 backdrop-blur-md border-b border-[#DDD7C9]">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
             <QuokkaBoboAvatar className="w-11 h-11 shrink-0" />
             <div className="min-w-0">
               <div className="flex items-center gap-1.5">
-                <h1 className="text-base sm:text-lg font-extrabold text-[#422B1D] tracking-tight truncate">
+                <h1 className="text-base sm:text-lg font-extrabold text-[#2D251E] tracking-tight truncate">
                   BoboCloset 奶油衣櫥
                 </h1>
-                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-[#FFFDF9] border border-[#E7D6BE] text-[10px] font-bold text-[#8E6D56]">
-                  Quokka & Bobo OOTD
+                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-[#F2CA62]/85 text-[10px] font-bold text-[#2D251E]">
+                  Quokka &amp; BOBO OOTD
                 </span>
               </div>
-              <p className="text-[11px] text-[#8E6D56] truncate">
+              <p className="text-[11px] text-[#7D7063] truncate">
                 {isReadOnlyShareView
                   ? '👀 唯讀展示模式 · 點右上可回到自己的衣櫥'
                   : `${activeItemsForStylist.length} 件衣服 · ${lastSyncedText}`}
@@ -469,7 +469,7 @@ export const App: React.FC = () => {
             {isReadOnlyShareView ? (
               <a
                 href={window.location.pathname}
-                className="bobo-btn px-3 py-1.5 rounded-2xl bg-[#BA7E4D] text-[#FFFDF9] text-xs font-bold"
+                className="bobo-btn px-3 py-1.5 rounded-2xl bg-[#C48E63] text-[#FFFDF9] text-xs font-bold"
               >
                 開啟我的衣櫥
               </a>
@@ -479,11 +479,11 @@ export const App: React.FC = () => {
                   type="button"
                   onClick={() => void triggerCloudSync(undefined, false, true)}
                   disabled={isSyncing}
-                  className="bobo-btn-soft inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-[#FFFDF9] text-xs font-bold text-[#422B1D]"
+                  className="bobo-btn-soft inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-[#FAF8F3] text-xs font-bold text-[#2D251E]"
                   title="立即與雲端同步最新衣櫥與穿搭"
                 >
                   <RefreshCw
-                    className={`w-3.5 h-3.5 text-[#BA7E4D] ${
+                    className={`w-3.5 h-3.5 text-[#C48E63] ${
                       isSyncing ? 'animate-spin' : ''
                     }`}
                   />
@@ -495,8 +495,8 @@ export const App: React.FC = () => {
                   onClick={() => setIsSyncModalOpen(true)}
                   className={`bobo-btn-soft inline-flex items-center gap-1 px-2.5 py-1.5 rounded-2xl text-xs font-bold ${
                     hasPasscode
-                      ? 'bg-[#EEF3EC] text-[#4E6B48] border-[#97B391]'
-                      : 'bg-[#FAF5EC] text-[#73533E]'
+                      ? 'bg-[#EBF3EC] text-[#3F6949] border-[#C6DEC8]'
+                      : 'bg-[#EFECE4] text-[#5C5044]'
                   }`}
                   title="設定跨瀏覽器同步通行碼或下載備份"
                 >
@@ -512,7 +512,7 @@ export const App: React.FC = () => {
 
         {/* Desktop Navigation Tabs */}
         <div className="hidden sm:block max-w-5xl mx-auto px-4 pb-2.5">
-          <div className="inline-flex p-1 rounded-2xl bg-[#F3E9D8]/80 border border-[#E7D6BE] gap-1">
+          <div className="inline-flex p-1 rounded-2xl bg-[#EFECE4] border border-[#DDD7C9] gap-1">
             {[
               { id: 'closet' as const, label: '🧺 我的奶油衣櫥', icon: Shirt },
               { id: 'stylist' as const, label: '✨ 今日情境穿搭顧問', icon: Sparkles },
@@ -526,8 +526,8 @@ export const App: React.FC = () => {
                   onClick={() => setActiveTab(tab.id)}
                   className={`px-4 py-1.5 rounded-xl text-xs font-bold transition ${
                     active
-                      ? 'bg-[#FFFDF9] text-[#422B1D] shadow-sm border border-[#E7D6BE]'
-                      : 'text-[#73533E] hover:text-[#422B1D]'
+                      ? 'bg-[#F2CA62] text-[#2D251E] shadow-sm'
+                      : 'text-[#6E6155] hover:text-[#2D251E]'
                   }`}
                 >
                   {tab.label}
@@ -540,7 +540,7 @@ export const App: React.FC = () => {
 
       {/* Toast Notification */}
       {toastMsg && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-[#422B1D] text-[#FFFDF9] text-xs font-bold shadow-lg border border-[#73533E]">
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-[#2D251E] text-[#FAF8F3] text-xs font-bold shadow-lg">
           {toastMsg}
         </div>
       )}

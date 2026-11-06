@@ -7,49 +7,50 @@
 }
 
 body {
-  background-color: #FAF5EC;
-  background-image: radial-gradient(#E8D8C3 1.15px, transparent 1.15px);
-  background-size: 24px 24px;
-  color: #422B1D;
+  background-color: #ECE8DF;
+  color: #2D251E;
   -webkit-tap-highlight-color: transparent;
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Quokka & Bobo Minimalist Cream Card */
+/* Authentic Dinotaeng Minimalist Matte Cream Card */
 .cream-card {
-  background: #FFFDF9;
-  border: 2px solid #E7D6BE;
+  background: #FAF8F3;
+  border: 1.5px solid #DDD7C9;
   border-radius: 1.5rem;
-  box-shadow: 0 4px 0 #EFE1CD, 0 8px 24px rgba(92, 63, 45, 0.04);
+  box-shadow: 0 8px 24px -6px rgba(60, 48, 36, 0.07);
 }
 
 .cream-card-soft {
-  background: rgba(255, 253, 249, 0.9);
-  border: 1.5px solid #EADBC6;
+  background: rgba(250, 248, 243, 0.94);
+  border: 1px solid #E2DDD1;
   border-radius: 1.25rem;
 }
 
-/* Tactile Doodle Button */
+/* Lineless Tactile Matte Pill Button (No dark comic borders!) */
 .bobo-btn {
-  border: 2px solid #422B1D;
-  box-shadow: 0 3px 0 #422B1D;
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.15s ease;
+  box-shadow: 0 3px 0 rgba(30, 24, 20, 0.14);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.15s ease;
+}
+
+.bobo-btn:hover:not(:disabled) {
+  filter: brightness(1.03);
 }
 
 .bobo-btn:active:not(:disabled) {
   transform: translateY(2px);
-  box-shadow: 0 1px 0 #422B1D;
+  box-shadow: 0 1px 0 rgba(30, 24, 20, 0.14);
 }
 
 .bobo-btn-soft {
-  border: 1.8px solid #D9C3A5;
-  box-shadow: 0 2.5px 0 #E6D5BE;
+  border: 1.5px solid #DDD7C9;
+  box-shadow: 0 2px 0 #E2DDD1;
   transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.15s ease;
 }
 
 .bobo-btn-soft:active:not(:disabled) {
   transform: translateY(1.5px);
-  box-shadow: 0 1px 0 #E6D5BE;
+  box-shadow: 0 1px 0 #E2DDD1;
 }
 
 /* Hide scrollbars on horizontal filter strips */

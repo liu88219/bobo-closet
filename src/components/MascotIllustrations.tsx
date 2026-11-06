@@ -1,185 +1,203 @@
-import React from 'react';
+import React, { useId } from 'react';
 import { COLOR_TONE_META, ColorTone, GarmentSilhouette } from '../types/wardrobe';
 
+const FUR = '#C48E63';
+const INK = '#14110F';
+const TONGUE = '#E37A70';
+const BOBO_WHITE = '#FFFFFF';
+const OAT_STAGE = '#DEDCD3';
+const BUTTER = '#F2CA62';
+const OLIVE_KNIT = '#3E5641';
+const RED_BAG = '#C63B32';
+
+function CrayonFilter({ id, scale = 2.2 }: { id: string; scale?: number }) {
+  return (
+    <defs>
+      <filter id={id} x="-12%" y="-12%" width="124%" height="124%">
+        <feTurbulence
+          type="fractalNoise"
+          baseFrequency="0.085"
+          numOctaves="3"
+          seed="21"
+          result="noise"
+        />
+        <feDisplacementMap
+          in="SourceGraphic"
+          in2="noise"
+          scale={scale}
+          xChannelSelector="R"
+          yChannelSelector="G"
+        />
+      </filter>
+    </defs>
+  );
+}
+
 /**
- * Header 小頭像：戴奶油貝雷帽的 Quokka 與棉花糖 Bobo
+ * Header 小頭像：正宗韓系 Dinotaeng 無黑框蠟筆質感 — 橄欖綠 V 領針織衫 Quokka 與揹紅色小包包的雪白軟糖熊 BOBO
  */
 export const QuokkaBoboAvatar: React.FC<{ className?: string }> = ({
   className = 'w-11 h-11',
-}) => (
-  <svg viewBox="0 0 128 128" className={className} aria-hidden="true">
-    <rect width="128" height="128" rx="30" fill="#FAF5EC" />
-    <rect
-      x="5"
-      y="5"
-      width="118"
-      height="118"
-      rx="26"
-      fill="#FFFDF9"
-      stroke="#E7D6BE"
-      strokeWidth="3"
-    />
-    {/* Bobo peeking on right */}
-    <circle cx="86" cy="54" r="8.5" fill="#FFFDF9" stroke="#422B1D" strokeWidth="3.2" />
-    <circle cx="105" cy="56" r="8.5" fill="#FFFDF9" stroke="#422B1D" strokeWidth="3.2" />
-    <ellipse cx="94" cy="79" rx="20" ry="22" fill="#FFFDF9" stroke="#422B1D" strokeWidth="3.2" />
-    <circle cx="88" cy="73" r="2.4" fill="#422B1D" />
-    <circle cx="100" cy="74" r="2.4" fill="#422B1D" />
-    <ellipse cx="83" cy="78" rx="4" ry="2.4" fill="#F4A49B" opacity="0.85" />
-    <ellipse cx="104" cy="79" rx="4" ry="2.4" fill="#F4A49B" opacity="0.85" />
-    <path
-      d="M92 78 Q94 81 96.5 78"
-      fill="none"
-      stroke="#422B1D"
-      strokeWidth="2.4"
-      strokeLinecap="round"
-    />
+}) => {
+  const fid = useId().replace(/:/g, '');
+  return (
+    <svg viewBox="0 0 128 128" className={className} aria-hidden="true">
+      <CrayonFilter id={fid} scale={2.3} />
+      <rect width="128" height="128" rx="30" fill={OAT_STAGE} />
+      <g filter={`url(#${fid})`}>
+        {/* Quokka (Left: solid caramel fur + V-neck olive sweater + black paws/feet, NO outline, NO blush) */}
+        <circle cx="30" cy="33" r="8.8" fill={FUR} />
+        <circle cx="56" cy="33" r="8.8" fill={FUR} />
+        <path
+          d="M22 52 C21 36, 29 29, 43 29 C57 29, 65 36, 64 52 C66 66, 62 76, 43 76 C24 76, 20 66, 22 52 Z"
+          fill={FUR}
+        />
+        <ellipse cx="43" cy="101" rx="19" ry="10" fill={FUR} />
+        <ellipse cx="32" cy="109" rx="7.4" ry="3.2" fill={INK} />
+        <ellipse cx="54" cy="109" rx="7.4" ry="3.2" fill={INK} />
+        <path d="M21 73 Q43 77 65 73 L66 99 Q43 103 20 99 Z" fill={OLIVE_KNIT} />
+        <polygon points="35,74 43,86 51,74" fill="#FAF8F2" />
+        <ellipse cx="21" cy="84" rx="5.5" ry="9.5" transform="rotate(18 21 84)" fill={OLIVE_KNIT} />
+        <circle cx="18.5" cy="91.5" r="3.6" fill={INK} />
+        <ellipse cx="65" cy="84" rx="5.5" ry="9.5" transform="rotate(-18 65 84)" fill={OLIVE_KNIT} />
+        <circle cx="67.5" cy="91.5" r="3.6" fill={INK} />
 
-    {/* Quokka with cream beret */}
-    <circle cx="29" cy="48" r="10" fill="#BA7E4D" stroke="#422B1D" strokeWidth="3.4" />
-    <circle cx="29" cy="48" r="4.8" fill="#DFB089" />
-    <circle cx="65" cy="48" r="10" fill="#BA7E4D" stroke="#422B1D" strokeWidth="3.4" />
-    <circle cx="65" cy="48" r="4.8" fill="#DFB089" />
-    <ellipse cx="47" cy="78" rx="27" ry="25" fill="#BA7E4D" stroke="#422B1D" strokeWidth="3.4" />
-    <path
-      d="M23 52 C24 36 70 35 71 51 C60 47 34 47 23 52 Z"
-      fill="#F3E9D8"
-      stroke="#422B1D"
-      strokeWidth="3"
-      strokeLinejoin="round"
-    />
-    <path d="M46 36 L48 32" stroke="#422B1D" strokeWidth="3" strokeLinecap="round" />
-    <circle cx="37" cy="73" r="3" fill="#422B1D" />
-    <circle cx="57" cy="73" r="3" fill="#422B1D" />
-    <ellipse cx="29" cy="80" rx="5.5" ry="3.4" fill="#F4978E" opacity="0.85" />
-    <ellipse cx="65" cy="80" rx="5.5" ry="3.4" fill="#F4978E" opacity="0.85" />
-    <ellipse cx="47" cy="77" rx="4" ry="3" fill="#422B1D" />
-    <path
-      d="M40.5 82 Q43.8 86.5 47 81.5 Q50.2 86.5 53.5 82"
-      fill="none"
-      stroke="#422B1D"
-      strokeWidth="2.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
+        {/* BOBO (Right: pure snow-white gummy bear + cute Red Mini Bag) */}
+        <circle cx="84" cy="51" r="6.5" fill={BOBO_WHITE} />
+        <circle cx="108" cy="51" r="6.5" fill={BOBO_WHITE} />
+        <ellipse cx="96" cy="66" rx="17.5" ry="15" fill={BOBO_WHITE} />
+        <path
+          d="M78 88 C77 74, 84 71, 96 71 C108 71, 115 74, 114 88 C114 101, 109 108, 102 108 C99 108, 98 103, 96 103 C94 103, 93 108, 90 108 C83 108, 78 101, 78 88 Z"
+          fill={BOBO_WHITE}
+        />
+        <ellipse cx="78" cy="82" rx="6.5" ry="4.8" transform="rotate(-22 78 82)" fill={BOBO_WHITE} />
+        <ellipse cx="113" cy="80" rx="6.5" ry="4.8" transform="rotate(24 113 80)" fill={BOBO_WHITE} />
+        <path
+          d="M106 84 C106 77, 116 77, 116 84"
+          fill="none"
+          stroke={RED_BAG}
+          strokeWidth="2.8"
+          strokeLinecap="round"
+        />
+        <rect x="103" y="83" width="15" height="12" rx="4.5" fill={RED_BAG} />
+      </g>
+
+      {/* Crisp Minimalist Dinotaeng Facial Features */}
+      <ellipse cx="37.5" cy="46.5" rx="2" ry="2.5" fill={INK} />
+      <ellipse cx="48.5" cy="46.5" rx="2" ry="2.5" fill={INK} />
+      <ellipse cx="43" cy="53.5" rx="3.4" ry="4.6" fill={INK} />
+      <path
+        d="M38.5 60.5 C38.5 59.5, 47.5 59.5, 47.5 60.5 C47.5 66.5, 38.5 66.5, 38.5 60.5 Z"
+        fill={INK}
+      />
+      <ellipse cx="43" cy="64.2" rx="2.7" ry="1.4" fill={TONGUE} />
+
+      <ellipse cx="92" cy="63" rx="1.6" ry="2" fill={INK} />
+      <ellipse cx="100" cy="63" rx="1.6" ry="2" fill={INK} />
+      <ellipse cx="96" cy="67" rx="2" ry="1.5" fill={INK} />
+      <path
+        d="M96 68 L96 70.2 M91.8 69.8 Q93.9 72.6 96 70 Q98.1 72.6 100.2 69.8"
+        fill="none"
+        stroke={INK}
+        strokeWidth="1.65"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
 
 /**
- * 穿搭顧問橫幅插畫：Quokka 拿著木頭衣架與奶油針織衫，Bobo 從帆布包探頭比讚
+ * 穿搭顧問橫幅插畫：奶油全身鏡、穿著橄欖綠針織衫的無邊框 Quokka 與提著紅色迷你包包的雪白 BOBO
  */
 export const StylistStudioIllustration: React.FC<{ className?: string }> = ({
   className = 'w-36 h-24',
-}) => (
-  <svg viewBox="0 0 220 140" className={className} aria-hidden="true">
-    {/* Soft ground shadow */}
-    <ellipse cx="110" cy="126" rx="84" ry="9" fill="#EADAC3" opacity="0.65" />
+}) => {
+  const fid = useId().replace(/:/g, '');
+  return (
+    <svg viewBox="0 0 220 140" className={className} aria-hidden="true">
+      <CrayonFilter id={fid} scale={2.2} />
+      {/* Warm Oatmeal-Greige Stage Backdrop so snow-white BOBO pops crisply */}
+      <rect x="6" y="10" width="208" height="122" rx="30" fill={OAT_STAGE} />
+      <circle cx="190" cy="30" r="10" fill={BUTTER} />
 
-    {/* Mini cream dressing mirror on left */}
-    <rect
-      x="16"
-      y="20"
-      width="46"
-      height="98"
-      rx="23"
-      fill="#FAF5EC"
-      stroke="#422B1D"
-      strokeWidth="2.8"
-    />
-    <rect x="22" y="26" width="34" height="86" rx="17" fill="#FFFDF9" stroke="#E7D6BE" strokeWidth="2" />
-    <path d="M30 46 L44 32" stroke="#F3E9D8" strokeWidth="3" strokeLinecap="round" />
-    <path d="M33 56 L48 41" stroke="#F3E9D8" strokeWidth="2" strokeLinecap="round" />
+      {/* Minimalist Cream Arch Mirror on Left */}
+      <rect x="22" y="24" width="44" height="94" rx="22" fill="#C9B9A6" />
+      <rect x="26" y="28" width="36" height="86" rx="18" fill="#FAF8F3" />
+      <path d="M34 48 L48 34" stroke="#E5E0D5" strokeWidth="3" strokeLinecap="round" />
+      <path d="M38 58 L52 44" stroke="#E5E0D5" strokeWidth="2.2" strokeLinecap="round" />
 
-    {/* Quokka Stylist in center */}
-    <g className="anim-quokka-float">
-      <circle cx="84" cy="40" r="9.5" fill="#BA7E4D" stroke="#422B1D" strokeWidth="2.8" />
-      <circle cx="84" cy="40" r="4.5" fill="#DFB089" />
-      <circle cx="118" cy="40" r="9.5" fill="#BA7E4D" stroke="#422B1D" strokeWidth="2.8" />
-      <circle cx="118" cy="40" r="4.5" fill="#DFB089" />
-      {/* Body */}
-      <path
-        d="M78 82 C76 62 126 62 124 82 L126 116 Q101 122 76 116 Z"
-        fill="#BA7E4D"
-        stroke="#422B1D"
-        strokeWidth="2.8"
-      />
-      {/* Cream knit vest on Quokka */}
-      <path
-        d="M80 86 Q101 94 122 86 L124 115 Q101 121 78 115 Z"
-        fill="#FFFDF9"
-        stroke="#422B1D"
-        strokeWidth="2.6"
-      />
-      <path d="M93 87 L101 97 L109 87" fill="none" stroke="#D6BEA0" strokeWidth="2.4" />
-      {/* Head */}
-      <ellipse cx="101" cy="64" rx="25" ry="22" fill="#BA7E4D" stroke="#422B1D" strokeWidth="2.8" />
-      {/* Beret */}
-      <path
-        d="M79 45 C82 31 122 31 123 44 C112 40 89 40 79 45 Z"
-        fill="#F3E9D8"
-        stroke="#422B1D"
-        strokeWidth="2.6"
-      />
-      {/* Eyes & Smile */}
-      <circle cx="92" cy="61" r="2.6" fill="#422B1D" />
-      <circle cx="110" cy="61" r="2.6" fill="#422B1D" />
-      <ellipse cx="85" cy="67" rx="4.8" ry="3" fill="#F4978E" opacity="0.85" />
-      <ellipse cx="117" cy="67" rx="4.8" ry="3" fill="#F4978E" opacity="0.85" />
-      <ellipse cx="101" cy="64.5" rx="3.5" ry="2.5" fill="#422B1D" />
-      <path
-        d="M95.5 69 Q98.2 73 101 68.5 Q103.8 73 106.5 69"
-        fill="none"
-        stroke="#422B1D"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-      />
-    </g>
+      {/* Quokka Stylist in Center */}
+      <g className="anim-quokka-float">
+        <g filter={`url(#${fid})`}>
+          <circle cx="90" cy="36" r="8.8" fill={FUR} />
+          <circle cx="116" cy="36" r="8.8" fill={FUR} />
+          <path
+            d="M82 54 C81 39, 89 32, 103 32 C117 32, 125 39, 124 54 C126 68, 122 78, 103 78 C84 78, 80 68, 82 54 Z"
+            fill={FUR}
+          />
+          <ellipse cx="103" cy="105" rx="19" ry="10" fill={FUR} />
+          <ellipse cx="92" cy="113" rx="7.5" ry="3.2" fill={INK} />
+          <ellipse cx="114" cy="113" rx="7.5" ry="3.2" fill={INK} />
+          <path d="M81 75 Q103 79 125 75 L126 102 Q103 106 80 102 Z" fill={OLIVE_KNIT} />
+          <polygon points="95,76 103,88 111,76" fill="#FAF8F2" />
+          <ellipse cx="81" cy="86" rx="5.5" ry="9.5" transform="rotate(18 81 86)" fill={OLIVE_KNIT} />
+          <circle cx="78.5" cy="93.5" r="3.6" fill={INK} />
+          <ellipse cx="125" cy="86" rx="5.5" ry="9.5" transform="rotate(-18 125 86)" fill={OLIVE_KNIT} />
+          <circle cx="127.5" cy="93.5" r="3.6" fill={INK} />
+        </g>
+        <ellipse cx="97.5" cy="48.5" rx="2" ry="2.5" fill={INK} />
+        <ellipse cx="108.5" cy="48.5" rx="2" ry="2.5" fill={INK} />
+        <ellipse cx="103" cy="55.5" rx="3.4" ry="4.6" fill={INK} />
+        <path
+          d="M98.5 62.5 C98.5 61.5, 107.5 61.5, 107.5 62.5 C107.5 68.5, 98.5 68.5, 98.5 62.5 Z"
+          fill={INK}
+        />
+        <ellipse cx="103" cy="66.2" rx="2.7" ry="1.4" fill={TONGUE} />
+      </g>
 
-    {/* Bobo popping out of a cream tote bag on right */}
-    <g className="anim-bobo-pop">
-      <circle cx="160" cy="54" r="7" fill="#FFFDF9" stroke="#422B1D" strokeWidth="2.6" />
-      <circle cx="178" cy="55" r="7" fill="#FFFDF9" stroke="#422B1D" strokeWidth="2.6" />
-      <ellipse cx="169" cy="73" rx="17" ry="18" fill="#FFFDF9" stroke="#422B1D" strokeWidth="2.6" />
-      <circle cx="163" cy="68" r="2.2" fill="#422B1D" />
-      <circle cx="175" cy="68" r="2.2" fill="#422B1D" />
-      <ellipse cx="159" cy="72" rx="3.6" ry="2.1" fill="#F4A49B" opacity="0.85" />
-      <ellipse cx="179" cy="72" rx="3.6" ry="2.1" fill="#F4A49B" opacity="0.85" />
-      <path
-        d="M166.5 72 Q169 75 171.5 72"
-        fill="none"
-        stroke="#422B1D"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-      />
-      {/* Cream Canvas Tote */}
-      <path
-        d="M159 84 C159 74 179 74 179 84"
-        fill="none"
-        stroke="#8E6D56"
-        strokeWidth="2.6"
-      />
-      <path
-        d="M148 83 L190 83 L186 118 Q169 121 152 118 Z"
-        fill="#F3E9D8"
-        stroke="#422B1D"
-        strokeWidth="2.6"
-        strokeLinejoin="round"
-      />
-      {/* Little heart on tote */}
-      <path
-        d="M169 104 C165 100 162 96 165 94 C167 92.5 169 95 169 96 C169 95 171 92.5 173 94 C176 96 173 100 169 104 Z"
-        fill="#EBA39A"
-      />
-    </g>
+      {/* Snow-White BOBO with Cute Red Mini Handbag on Right */}
+      <g className="anim-bobo-pop">
+        <g filter={`url(#${fid})`}>
+          <circle cx="152" cy="53" r="6.8" fill={BOBO_WHITE} />
+          <circle cx="178" cy="53" r="6.8" fill={BOBO_WHITE} />
+          <ellipse cx="165" cy="69" rx="18" ry="15.5" fill={BOBO_WHITE} />
+          <path
+            d="M146 91 C145 77, 152 74, 165 74 C178 74, 185 77, 184 91 C184 105, 179 113, 171 113 C168 113, 167 108, 165 108 C163 108, 162 113, 159 113 C151 113, 146 105, 146 91 Z"
+            fill={BOBO_WHITE}
+          />
+          <ellipse cx="146" cy="84" rx="7" ry="4.8" transform="rotate(-24 146 84)" fill={BOBO_WHITE} />
+          <ellipse cx="183" cy="83" rx="7" ry="4.8" transform="rotate(24 183 83)" fill={BOBO_WHITE} />
+          <path
+            d="M175 88 C175 81, 185 81, 185 88"
+            fill="none"
+            stroke={RED_BAG}
+            strokeWidth="2.8"
+            strokeLinecap="round"
+          />
+          <rect x="172" y="87" width="16" height="12.5" rx="4.5" fill={RED_BAG} />
+        </g>
+        <ellipse cx="160.8" cy="65.5" rx="1.7" ry="2.1" fill={INK} />
+        <ellipse cx="169.2" cy="65.5" rx="1.7" ry="2.1" fill={INK} />
+        <ellipse cx="165" cy="69.8" rx="2.1" ry="1.6" fill={INK} />
+        <path
+          d="M165 71 L165 73.2 M160.6 72.8 Q162.8 75.6 165 73 Q167.2 75.6 169.4 72.8"
+          fill="none"
+          stroke={INK}
+          strokeWidth="1.65"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </g>
 
-    {/* Sparkles */}
-    <path d="M142 26 L144 31 L149 33 L144 35 L142 40 L140 35 L135 33 L140 31 Z" fill="#EDC17E" />
-    <circle cx="67" cy="24" r="3" fill="#EBA39A" opacity="0.7" />
-  </svg>
-);
+      {/* Cheer Rays */}
+      <path d="M142 44 L137 39 M185 43 L190 38" stroke="#FAF8F3" strokeWidth="2.4" strokeLinecap="round" />
+    </svg>
+  );
+};
 
 /**
- * 簡約奶油手繪風服飾單品版型插畫（當尚未拍照或作為版型預覽時，自動依單品色系染色！）
+ * 簡約奶油霧面服飾單品版型插畫（柔和霧面線條，無粗重黑邊框）
  */
 export const GarmentVectorIllustration: React.FC<{
   silhouette: GarmentSilhouette;
@@ -189,7 +207,7 @@ export const GarmentVectorIllustration: React.FC<{
   const toneMeta = COLOR_TONE_META[colorTone] || COLOR_TONE_META.cream;
   const fill = toneMeta.hex;
   const trim = toneMeta.borderHex;
-  const stroke = '#422B1D';
+  const stroke = '#6E5E50';
 
   const showHanger = ['tee', 'shirt', 'knit', 'cardigan', 'coat', 'blazer', 'dress'].includes(
     silhouette
@@ -197,9 +215,9 @@ export const GarmentVectorIllustration: React.FC<{
 
   return (
     <svg viewBox="0 0 140 140" className={className} aria-hidden="true">
-      {/* Subtle cream studio backdrop */}
-      <rect width="140" height="140" rx="22" fill="#FAF5EC" />
-      <circle cx="70" cy="74" r="46" fill="#FFFDF9" opacity="0.85" />
+      {/* Subtle oatmeal cream studio backdrop */}
+      <rect width="140" height="140" rx="22" fill="#EFECE4" />
+      <circle cx="70" cy="74" r="46" fill="#FAF8F3" opacity="0.9" />
 
       {/* Wooden hanger */}
       {showHanger && (
@@ -207,15 +225,15 @@ export const GarmentVectorIllustration: React.FC<{
           <path
             d="M70 15 C70 10 76 10 76 14 C76 17 70 18 70 22"
             fill="none"
-            stroke="#8E6D56"
-            strokeWidth="2.6"
+            stroke="#9C846E"
+            strokeWidth="2.2"
             strokeLinecap="round"
           />
           <path
             d="M48 33 L70 22 L92 33"
             fill="none"
-            stroke="#8E6D56"
-            strokeWidth="3"
+            stroke="#9C846E"
+            strokeWidth="2.6"
             strokeLinecap="round"
           />
         </g>
@@ -227,10 +245,10 @@ export const GarmentVectorIllustration: React.FC<{
             d="M46 34 Q70 42 94 34 L112 52 L100 66 L90 58 L90 108 Q70 111 50 108 L50 58 L40 66 L28 52 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <path d="M56 36 Q70 46 84 36" fill="none" stroke={trim} strokeWidth="2.5" />
+          <path d="M56 36 Q70 46 84 36" fill="none" stroke={trim} strokeWidth="2.2" />
         </g>
       )}
 
@@ -240,21 +258,20 @@ export const GarmentVectorIllustration: React.FC<{
             d="M47 33 L93 33 L112 88 L98 92 L89 56 L89 110 Q70 113 51 110 L51 56 L42 92 L28 88 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          {/* Shirt collar & buttons */}
           <path
             d="M56 33 L70 46 L84 33"
-            fill="#FFFDF9"
+            fill="#FAF8F3"
             stroke={stroke}
-            strokeWidth="2.6"
+            strokeWidth="1.9"
             strokeLinejoin="round"
           />
-          <line x1="70" y1="46" x2="70" y2="110" stroke={trim} strokeWidth="2" />
-          <circle cx="70" cy="58" r="1.8" fill={stroke} />
-          <circle cx="70" cy="72" r="1.8" fill={stroke} />
-          <circle cx="70" cy="86" r="1.8" fill={stroke} />
+          <line x1="70" y1="46" x2="70" y2="110" stroke={trim} strokeWidth="1.8" />
+          <circle cx="70" cy="58" r="1.6" fill={stroke} />
+          <circle cx="70" cy="72" r="1.6" fill={stroke} />
+          <circle cx="70" cy="86" r="1.6" fill={stroke} />
         </g>
       )}
 
@@ -264,25 +281,24 @@ export const GarmentVectorIllustration: React.FC<{
             d="M45 35 Q70 41 95 35 L113 92 L97 96 L89 60 L89 108 Q70 111 51 108 L51 60 L43 96 L27 92 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          {/* Cable knit texture lines */}
           <path
             d="M62 46 Q65 56 62 66 Q59 76 62 86 Q65 96 62 104"
             fill="none"
             stroke={trim}
-            strokeWidth="2.2"
+            strokeWidth="2"
             strokeLinecap="round"
           />
           <path
             d="M78 46 Q75 56 78 66 Q81 76 78 86 Q75 96 78 104"
             fill="none"
             stroke={trim}
-            strokeWidth="2.2"
+            strokeWidth="2"
             strokeLinecap="round"
           />
-          <line x1="52" y1="103" x2="88" y2="103" stroke={trim} strokeWidth="2.5" />
+          <line x1="52" y1="103" x2="88" y2="103" stroke={trim} strokeWidth="2.2" />
         </g>
       )}
 
@@ -292,14 +308,13 @@ export const GarmentVectorIllustration: React.FC<{
             d="M46 34 L60 34 L70 52 L80 34 L94 34 L113 94 L97 98 L89 60 L89 110 L51 110 L51 60 L43 98 L27 94 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <line x1="70" y1="52" x2="70" y2="110" stroke={stroke} strokeWidth="2.6" />
-          {/* Cute wooden buttons */}
-          <circle cx="70" cy="64" r="2.8" fill="#BA7E4D" stroke={stroke} strokeWidth="1.6" />
-          <circle cx="70" cy="79" r="2.8" fill="#BA7E4D" stroke={stroke} strokeWidth="1.6" />
-          <circle cx="70" cy="94" r="2.8" fill="#BA7E4D" stroke={stroke} strokeWidth="1.6" />
+          <line x1="70" y1="52" x2="70" y2="110" stroke={stroke} strokeWidth="2" />
+          <circle cx="70" cy="64" r="2.6" fill={FUR} />
+          <circle cx="70" cy="79" r="2.6" fill={FUR} />
+          <circle cx="70" cy="94" r="2.6" fill={FUR} />
         </g>
       )}
 
@@ -309,20 +324,19 @@ export const GarmentVectorIllustration: React.FC<{
             d="M44 33 L96 33 L113 96 L98 100 L90 58 L92 116 L48 116 L50 58 L42 100 L27 96 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          {/* Lapels */}
           <path
             d="M57 33 L70 64 L83 33"
             fill="none"
             stroke={stroke}
-            strokeWidth="2.6"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <line x1="70" y1="64" x2="70" y2="116" stroke={stroke} strokeWidth="2.2" />
-          <circle cx="65" cy="78" r="2.3" fill={stroke} />
-          <circle cx="65" cy="92" r="2.3" fill={stroke} />
+          <line x1="70" y1="64" x2="70" y2="116" stroke={stroke} strokeWidth="1.8" />
+          <circle cx="65" cy="78" r="2.1" fill={stroke} />
+          <circle cx="65" cy="92" r="2.1" fill={stroke} />
         </g>
       )}
 
@@ -332,13 +346,13 @@ export const GarmentVectorIllustration: React.FC<{
             d="M46 28 L94 28 L100 114 L76 114 L70 58 L64 114 L40 114 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <line x1="46" y1="37" x2="94" y2="37" stroke={stroke} strokeWidth="2.4" />
-          <circle cx="70" cy="32.5" r="2" fill={stroke} />
-          <path d="M47 46 Q55 46 57 38" fill="none" stroke={trim} strokeWidth="2.2" />
-          <path d="M93 46 Q85 46 83 38" fill="none" stroke={trim} strokeWidth="2.2" />
+          <line x1="46" y1="37" x2="94" y2="37" stroke={stroke} strokeWidth="1.8" />
+          <circle cx="70" cy="32.5" r="1.8" fill={stroke} />
+          <path d="M47 46 Q55 46 57 38" fill="none" stroke={trim} strokeWidth="1.8" />
+          <path d="M93 46 Q85 46 83 38" fill="none" stroke={trim} strokeWidth="1.8" />
         </g>
       )}
 
@@ -348,13 +362,12 @@ export const GarmentVectorIllustration: React.FC<{
             d="M45 28 L95 28 L103 114 L75 114 L70 56 L65 114 L37 114 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <line x1="45" y1="36" x2="95" y2="36" stroke={stroke} strokeWidth="2.4" />
-          {/* Tailored center pleats */}
-          <line x1="56" y1="42" x2="52" y2="108" stroke={trim} strokeWidth="1.8" />
-          <line x1="84" y1="42" x2="88" y2="108" stroke={trim} strokeWidth="1.8" />
+          <line x1="45" y1="36" x2="95" y2="36" stroke={stroke} strokeWidth="1.8" />
+          <line x1="56" y1="42" x2="52" y2="108" stroke={trim} strokeWidth="1.6" />
+          <line x1="84" y1="42" x2="88" y2="108" stroke={trim} strokeWidth="1.6" />
         </g>
       )}
 
@@ -364,12 +377,12 @@ export const GarmentVectorIllustration: React.FC<{
             d="M50 32 L90 32 L108 110 Q70 117 32 110 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <line x1="49" y1="41" x2="91" y2="41" stroke={stroke} strokeWidth="2.4" />
-          <path d="M60 46 L52 106" stroke={trim} strokeWidth="2" strokeLinecap="round" />
-          <path d="M80 46 L88 106" stroke={trim} strokeWidth="2" strokeLinecap="round" />
+          <line x1="49" y1="41" x2="91" y2="41" stroke={stroke} strokeWidth="1.8" />
+          <path d="M60 46 L52 106" stroke={trim} strokeWidth="1.8" strokeLinecap="round" />
+          <path d="M80 46 L88 106" stroke={trim} strokeWidth="1.8" strokeLinecap="round" />
         </g>
       )}
 
@@ -379,10 +392,10 @@ export const GarmentVectorIllustration: React.FC<{
             d="M50 34 L62 34 Q70 43 78 34 L90 34 L96 54 L86 58 L84 64 L106 114 Q70 120 34 114 L56 64 L54 58 L44 54 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <path d="M56 64 Q70 68 84 64" fill="none" stroke={trim} strokeWidth="2.4" />
+          <path d="M56 64 Q70 68 84 64" fill="none" stroke={trim} strokeWidth="2" />
         </g>
       )}
 
@@ -392,22 +405,21 @@ export const GarmentVectorIllustration: React.FC<{
             d="M28 88 L34 58 L56 58 L74 74 L106 76 Q116 78 114 92 L26 92 Z"
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          {/* Gum sole */}
           <rect
             x="25"
             y="90"
             width="90"
             height="10"
             rx="5"
-            fill="#CFA072"
+            fill="#C99E74"
             stroke={stroke}
-            strokeWidth="2.8"
+            strokeWidth="1.8"
           />
-          <line x1="60" y1="64" x2="68" y2="59" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
-          <line x1="67" y1="70" x2="75" y2="65" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+          <line x1="60" y1="64" x2="68" y2="59" stroke={stroke} strokeWidth="2" strokeLinecap="round" />
+          <line x1="67" y1="70" x2="75" y2="65" stroke={stroke} strokeWidth="2" strokeLinecap="round" />
         </g>
       )}
 
@@ -421,20 +433,12 @@ export const GarmentVectorIllustration: React.FC<{
             }
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          <rect
-            x="28"
-            y="92"
-            width="85"
-            height="8"
-            rx="3"
-            fill="#422B1D"
-          />
-          {/* Mary-Jane / Loafer strap */}
-          <path d="M66 68 L62 84" stroke={stroke} strokeWidth="3" strokeLinecap="round" />
-          <circle cx="64" cy="75" r="2.5" fill="#EDC17E" />
+          <rect x="28" y="92" width="85" height="8" rx="3" fill="#2D251E" />
+          <path d="M66 68 L62 84" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
+          <circle cx="64" cy="75" r="2.3" fill={BUTTER} />
         </g>
       )}
 
@@ -444,7 +448,7 @@ export const GarmentVectorIllustration: React.FC<{
             d="M52 54 C52 30 88 30 88 54"
             fill="none"
             stroke={stroke}
-            strokeWidth="3.2"
+            strokeWidth="2.4"
             strokeLinecap="round"
           />
           <path
@@ -455,13 +459,16 @@ export const GarmentVectorIllustration: React.FC<{
             }
             fill={fill}
             stroke={stroke}
-            strokeWidth="3"
+            strokeWidth="2"
             strokeLinejoin="round"
           />
-          {/* Cute little Bobo charm tag */}
-          <circle cx="88" cy="70" r="6.5" fill="#FFFDF9" stroke={stroke} strokeWidth="2.2" />
-          <circle cx="86" cy="69" r="1.1" fill={stroke} />
-          <circle cx="90" cy="69" r="1.1" fill={stroke} />
+          {/* Lineless snow-white BOBO charm tag */}
+          <circle cx="84.5" cy="65.5" r="2.6" fill={BOBO_WHITE} />
+          <circle cx="91.5" cy="65.5" r="2.6" fill={BOBO_WHITE} />
+          <circle cx="88" cy="70" r="6.2" fill={BOBO_WHITE} />
+          <circle cx="86.2" cy="69" r="0.9" fill={INK} />
+          <circle cx="89.8" cy="69" r="0.9" fill={INK} />
+          <circle cx="88" cy="70.8" r="1" fill={INK} />
         </g>
       )}
 
@@ -473,7 +480,7 @@ export const GarmentVectorIllustration: React.FC<{
                 d="M32 82 C30 52 110 52 108 82 C90 76 50 76 32 82 Z"
                 fill={fill}
                 stroke={stroke}
-                strokeWidth="3"
+                strokeWidth="2"
                 strokeLinejoin="round"
               />
               <ellipse
@@ -483,9 +490,9 @@ export const GarmentVectorIllustration: React.FC<{
                 ry="8"
                 fill={fill}
                 stroke={stroke}
-                strokeWidth="2.8"
+                strokeWidth="2"
               />
-              <path d="M69 53 L72 46" stroke={stroke} strokeWidth="3.2" strokeLinecap="round" />
+              <path d="M69 53 L72 46" stroke={stroke} strokeWidth="2.4" strokeLinecap="round" />
             </>
           ) : (
             <>
@@ -497,13 +504,13 @@ export const GarmentVectorIllustration: React.FC<{
                 rx="12"
                 fill={fill}
                 stroke={stroke}
-                strokeWidth="3"
+                strokeWidth="2"
               />
               <path
                 d="M68 68 L62 108 L84 108 L80 68 Z"
                 fill={fill}
                 stroke={stroke}
-                strokeWidth="3"
+                strokeWidth="2"
                 strokeLinejoin="round"
               />
             </>
@@ -515,7 +522,7 @@ export const GarmentVectorIllustration: React.FC<{
 };
 
 /**
- * 統一單品視覺卡（有真實照片時以奶油拍立得邊框呈現，無照片時顯示同色系奶油手繪插畫）
+ * 統一單品視覺卡（有真實照片時以奶油霧面邊框呈現，無照片時顯示同色系簡約奶油插畫）
  */
 export const WardrobeItemVisual: React.FC<{
   imageUrl?: string;
@@ -529,7 +536,7 @@ export const WardrobeItemVisual: React.FC<{
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl bg-[#FAF5EC] border border-[#EADBC6] ${className}`}
+      className={`relative overflow-hidden rounded-2xl bg-[#EFECE4] border border-[#DDD7C9] ${className}`}
     >
       {validPhoto ? (
         <img

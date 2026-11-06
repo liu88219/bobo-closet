@@ -1,12 +1,12 @@
 {
-  "name": "BoboCloset — Quokka & Bobo 奶油穿搭資料庫",
+  "name": "BoboCloset — Quokka & BOBO 奶油穿搭資料庫",
   "short_name": "奶油衣櫥",
-  "description": "Quokka & Bobo 簡約奶油風智慧衣櫥：單品照片入庫、時間地點場合穿搭推薦與 OOTD 紀錄",
+  "description": "Dinotaeng Quokka & BOBO 簡約奶油風智慧衣櫥：單品照片入庫、時間地點場合穿搭推薦與 OOTD 紀錄",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#FAF5EC",
-  "theme_color": "#FAF5EC",
+  "background_color": "#ECE8DF",
+  "theme_color": "#ECE8DF",
   "orientation": "portrait",
   "icons": [
     {
