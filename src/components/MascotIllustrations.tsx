@@ -1,198 +1,54 @@
-import React, { useId } from 'react';
+import React from 'react';
 import { COLOR_TONE_META, ColorTone, GarmentSilhouette } from '../types/wardrobe';
 
-const FUR = '#C48E63';
-const INK = '#14110F';
-const TONGUE = '#E37A70';
+const FUR = '#C99661';
+const INK = '#171210';
 const BOBO_WHITE = '#FFFFFF';
-const OAT_STAGE = '#DEDCD3';
-const BUTTER = '#F2CA62';
-const OLIVE_KNIT = '#3E5641';
-const RED_BAG = '#C63B32';
-
-function CrayonFilter({ id, scale = 2.2 }: { id: string; scale?: number }) {
-  return (
-    <defs>
-      <filter id={id} x="-12%" y="-12%" width="124%" height="124%">
-        <feTurbulence
-          type="fractalNoise"
-          baseFrequency="0.085"
-          numOctaves="3"
-          seed="21"
-          result="noise"
-        />
-        <feDisplacementMap
-          in="SourceGraphic"
-          in2="noise"
-          scale={scale}
-          xChannelSelector="R"
-          yChannelSelector="G"
-        />
-      </filter>
-    </defs>
-  );
-}
+const BUTTER = '#F7CE6A';
 
 /**
- * Header 小頭像：正宗韓系 Dinotaeng 無黑框蠟筆質感 — 橄欖綠 V 領針織衫 Quokka 與揹紅色小包包的雪白軟糖熊 BOBO
+ * Header 小頭像：正宗韓系 Dinotaeng V2 油性粉彩質感 — 橄欖綠針織背心 Quokka 拿條紋衫衣架 ＋ 提復古紅小包照木框全身鏡的 BOBO
  */
 export const QuokkaBoboAvatar: React.FC<{ className?: string }> = ({
   className = 'w-11 h-11',
 }) => {
-  const fid = useId().replace(/:/g, '');
+  const src = './icon-192.png?v=3';
   return (
-    <svg viewBox="0 0 128 128" className={className} aria-hidden="true">
-      <CrayonFilter id={fid} scale={2.3} />
-      <rect width="128" height="128" rx="30" fill={OAT_STAGE} />
-      <g filter={`url(#${fid})`}>
-        {/* Quokka (Left: solid caramel fur + V-neck olive sweater + black paws/feet, NO outline, NO blush) */}
-        <circle cx="30" cy="33" r="8.8" fill={FUR} />
-        <circle cx="56" cy="33" r="8.8" fill={FUR} />
-        <path
-          d="M22 52 C21 36, 29 29, 43 29 C57 29, 65 36, 64 52 C66 66, 62 76, 43 76 C24 76, 20 66, 22 52 Z"
-          fill={FUR}
-        />
-        <ellipse cx="43" cy="101" rx="19" ry="10" fill={FUR} />
-        <ellipse cx="32" cy="109" rx="7.4" ry="3.2" fill={INK} />
-        <ellipse cx="54" cy="109" rx="7.4" ry="3.2" fill={INK} />
-        <path d="M21 73 Q43 77 65 73 L66 99 Q43 103 20 99 Z" fill={OLIVE_KNIT} />
-        <polygon points="35,74 43,86 51,74" fill="#FAF8F2" />
-        <ellipse cx="21" cy="84" rx="5.5" ry="9.5" transform="rotate(18 21 84)" fill={OLIVE_KNIT} />
-        <circle cx="18.5" cy="91.5" r="3.6" fill={INK} />
-        <ellipse cx="65" cy="84" rx="5.5" ry="9.5" transform="rotate(-18 65 84)" fill={OLIVE_KNIT} />
-        <circle cx="67.5" cy="91.5" r="3.6" fill={INK} />
-
-        {/* BOBO (Right: pure snow-white gummy bear + cute Red Mini Bag) */}
-        <circle cx="84" cy="51" r="6.5" fill={BOBO_WHITE} />
-        <circle cx="108" cy="51" r="6.5" fill={BOBO_WHITE} />
-        <ellipse cx="96" cy="66" rx="17.5" ry="15" fill={BOBO_WHITE} />
-        <path
-          d="M78 88 C77 74, 84 71, 96 71 C108 71, 115 74, 114 88 C114 101, 109 108, 102 108 C99 108, 98 103, 96 103 C94 103, 93 108, 90 108 C83 108, 78 101, 78 88 Z"
-          fill={BOBO_WHITE}
-        />
-        <ellipse cx="78" cy="82" rx="6.5" ry="4.8" transform="rotate(-22 78 82)" fill={BOBO_WHITE} />
-        <ellipse cx="113" cy="80" rx="6.5" ry="4.8" transform="rotate(24 113 80)" fill={BOBO_WHITE} />
-        <path
-          d="M106 84 C106 77, 116 77, 116 84"
-          fill="none"
-          stroke={RED_BAG}
-          strokeWidth="2.8"
-          strokeLinecap="round"
-        />
-        <rect x="103" y="83" width="15" height="12" rx="4.5" fill={RED_BAG} />
-      </g>
-
-      {/* Crisp Minimalist Dinotaeng Facial Features */}
-      <ellipse cx="37.5" cy="46.5" rx="2" ry="2.5" fill={INK} />
-      <ellipse cx="48.5" cy="46.5" rx="2" ry="2.5" fill={INK} />
-      <ellipse cx="43" cy="53.5" rx="3.4" ry="4.6" fill={INK} />
-      <path
-        d="M38.5 60.5 C38.5 59.5, 47.5 59.5, 47.5 60.5 C47.5 66.5, 38.5 66.5, 38.5 60.5 Z"
-        fill={INK}
+    <div
+      className={`overflow-hidden rounded-2xl border border-[#DDD7C9] bg-[#E2DED2] shadow-sm select-none ${className}`}
+      aria-hidden="true"
+    >
+      <img
+        src={src}
+        alt=""
+        loading="eager"
+        decoding="async"
+        className="w-full h-full object-cover object-center"
       />
-      <ellipse cx="43" cy="64.2" rx="2.7" ry="1.4" fill={TONGUE} />
-
-      <ellipse cx="92" cy="63" rx="1.6" ry="2" fill={INK} />
-      <ellipse cx="100" cy="63" rx="1.6" ry="2" fill={INK} />
-      <ellipse cx="96" cy="67" rx="2" ry="1.5" fill={INK} />
-      <path
-        d="M96 68 L96 70.2 M91.8 69.8 Q93.9 72.6 96 70 Q98.1 72.6 100.2 69.8"
-        fill="none"
-        stroke={INK}
-        strokeWidth="1.65"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+    </div>
   );
 };
 
 /**
- * 穿搭顧問橫幅插畫：奶油全身鏡、穿著橄欖綠針織衫的無邊框 Quokka 與提著紅色迷你包包的雪白 BOBO
+ * 穿搭顧問橫幅插畫：木框全身鏡試穿照鏡子 ＋ 原木衣桿大衣條紋衫 ＋ 提紅小包散步的 BOBO
  */
 export const StylistStudioIllustration: React.FC<{ className?: string }> = ({
-  className = 'w-36 h-24',
+  className = 'w-44 h-24',
 }) => {
-  const fid = useId().replace(/:/g, '');
+  const src = './assets/hero-bobo-closet.webp?v=3';
   return (
-    <svg viewBox="0 0 220 140" className={className} aria-hidden="true">
-      <CrayonFilter id={fid} scale={2.2} />
-      {/* Warm Oatmeal-Greige Stage Backdrop so snow-white BOBO pops crisply */}
-      <rect x="6" y="10" width="208" height="122" rx="30" fill={OAT_STAGE} />
-      <circle cx="190" cy="30" r="10" fill={BUTTER} />
-
-      {/* Minimalist Cream Arch Mirror on Left */}
-      <rect x="22" y="24" width="44" height="94" rx="22" fill="#C9B9A6" />
-      <rect x="26" y="28" width="36" height="86" rx="18" fill="#FAF8F3" />
-      <path d="M34 48 L48 34" stroke="#E5E0D5" strokeWidth="3" strokeLinecap="round" />
-      <path d="M38 58 L52 44" stroke="#E5E0D5" strokeWidth="2.2" strokeLinecap="round" />
-
-      {/* Quokka Stylist in Center */}
-      <g className="anim-quokka-float">
-        <g filter={`url(#${fid})`}>
-          <circle cx="90" cy="36" r="8.8" fill={FUR} />
-          <circle cx="116" cy="36" r="8.8" fill={FUR} />
-          <path
-            d="M82 54 C81 39, 89 32, 103 32 C117 32, 125 39, 124 54 C126 68, 122 78, 103 78 C84 78, 80 68, 82 54 Z"
-            fill={FUR}
-          />
-          <ellipse cx="103" cy="105" rx="19" ry="10" fill={FUR} />
-          <ellipse cx="92" cy="113" rx="7.5" ry="3.2" fill={INK} />
-          <ellipse cx="114" cy="113" rx="7.5" ry="3.2" fill={INK} />
-          <path d="M81 75 Q103 79 125 75 L126 102 Q103 106 80 102 Z" fill={OLIVE_KNIT} />
-          <polygon points="95,76 103,88 111,76" fill="#FAF8F2" />
-          <ellipse cx="81" cy="86" rx="5.5" ry="9.5" transform="rotate(18 81 86)" fill={OLIVE_KNIT} />
-          <circle cx="78.5" cy="93.5" r="3.6" fill={INK} />
-          <ellipse cx="125" cy="86" rx="5.5" ry="9.5" transform="rotate(-18 125 86)" fill={OLIVE_KNIT} />
-          <circle cx="127.5" cy="93.5" r="3.6" fill={INK} />
-        </g>
-        <ellipse cx="97.5" cy="48.5" rx="2" ry="2.5" fill={INK} />
-        <ellipse cx="108.5" cy="48.5" rx="2" ry="2.5" fill={INK} />
-        <ellipse cx="103" cy="55.5" rx="3.4" ry="4.6" fill={INK} />
-        <path
-          d="M98.5 62.5 C98.5 61.5, 107.5 61.5, 107.5 62.5 C107.5 68.5, 98.5 68.5, 98.5 62.5 Z"
-          fill={INK}
-        />
-        <ellipse cx="103" cy="66.2" rx="2.7" ry="1.4" fill={TONGUE} />
-      </g>
-
-      {/* Snow-White BOBO with Cute Red Mini Handbag on Right */}
-      <g className="anim-bobo-pop">
-        <g filter={`url(#${fid})`}>
-          <circle cx="152" cy="53" r="6.8" fill={BOBO_WHITE} />
-          <circle cx="178" cy="53" r="6.8" fill={BOBO_WHITE} />
-          <ellipse cx="165" cy="69" rx="18" ry="15.5" fill={BOBO_WHITE} />
-          <path
-            d="M146 91 C145 77, 152 74, 165 74 C178 74, 185 77, 184 91 C184 105, 179 113, 171 113 C168 113, 167 108, 165 108 C163 108, 162 113, 159 113 C151 113, 146 105, 146 91 Z"
-            fill={BOBO_WHITE}
-          />
-          <ellipse cx="146" cy="84" rx="7" ry="4.8" transform="rotate(-24 146 84)" fill={BOBO_WHITE} />
-          <ellipse cx="183" cy="83" rx="7" ry="4.8" transform="rotate(24 183 83)" fill={BOBO_WHITE} />
-          <path
-            d="M175 88 C175 81, 185 81, 185 88"
-            fill="none"
-            stroke={RED_BAG}
-            strokeWidth="2.8"
-            strokeLinecap="round"
-          />
-          <rect x="172" y="87" width="16" height="12.5" rx="4.5" fill={RED_BAG} />
-        </g>
-        <ellipse cx="160.8" cy="65.5" rx="1.7" ry="2.1" fill={INK} />
-        <ellipse cx="169.2" cy="65.5" rx="1.7" ry="2.1" fill={INK} />
-        <ellipse cx="165" cy="69.8" rx="2.1" ry="1.6" fill={INK} />
-        <path
-          d="M165 71 L165 73.2 M160.6 72.8 Q162.8 75.6 165 73 Q167.2 75.6 169.4 72.8"
-          fill="none"
-          stroke={INK}
-          strokeWidth="1.65"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </g>
-
-      {/* Cheer Rays */}
-      <path d="M142 44 L137 39 M185 43 L190 38" stroke="#FAF8F3" strokeWidth="2.4" strokeLinecap="round" />
-    </svg>
+    <div
+      className={`overflow-hidden rounded-2xl border border-[#DDD7C9] bg-[#E6E2D6] shadow-sm select-none ${className}`}
+      aria-hidden="true"
+    >
+      <img
+        src={src}
+        alt=""
+        loading="eager"
+        decoding="async"
+        className="w-full h-full object-cover object-center"
+      />
+    </div>
   );
 };
 

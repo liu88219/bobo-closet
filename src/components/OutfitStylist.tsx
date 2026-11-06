@@ -152,7 +152,7 @@ export const OutfitStylist: React.FC<OutfitStylistProps> = ({
               自動排除待洗單品、考量溫差與雨天材質，還能避開跟同一位朋友穿重複組合！
             </p>
           </div>
-          <StylistStudioIllustration className="w-36 h-24 self-center sm:self-auto shrink-0" />
+          <StylistStudioIllustration className="w-44 h-24 self-center sm:self-auto shrink-0" />
         </div>
 
         {/* 1. Time & Occasion */}
