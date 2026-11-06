@@ -1,0 +1,2 @@
+# Place real wardrobe clothing photos here (e.g., cream-cardigan.webp).
+# Reference them in src/data/defaultWardrobe.ts as './wardrobe/<filename>'.

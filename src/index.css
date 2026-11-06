@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #FAF5EC;
+  background-image: radial-gradient(#E8D8C3 1.15px, transparent 1.15px);
+  background-size: 24px 24px;
+  color: #422B1D;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Quokka & Bobo Minimalist Cream Card */
+.cream-card {
+  background: #FFFDF9;
+  border: 2px solid #E7D6BE;
+  border-radius: 1.5rem;
+  box-shadow: 0 4px 0 #EFE1CD, 0 8px 24px rgba(92, 63, 45, 0.04);
+}
+
+.cream-card-soft {
+  background: rgba(255, 253, 249, 0.9);
+  border: 1.5px solid #EADBC6;
+  border-radius: 1.25rem;
+}
+
+/* Tactile Doodle Button */
+.bobo-btn {
+  border: 2px solid #422B1D;
+  box-shadow: 0 3px 0 #422B1D;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.15s ease;
+}
+
+.bobo-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #422B1D;
+}
+
+.bobo-btn-soft {
+  border: 1.8px solid #D9C3A5;
+  box-shadow: 0 2.5px 0 #E6D5BE;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.15s ease;
+}
+
+.bobo-btn-soft:active:not(:disabled) {
+  transform: translateY(1.5px);
+  box-shadow: 0 1px 0 #E6D5BE;
+}
+
+/* Hide scrollbars on horizontal filter strips */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes gentleFloat {
+  0%, 100% {
+    transform: translateY(0px) rotate(-1.2deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(1.2deg);
+  }
+}
+
+@keyframes boboPop {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.03);
+  }
+}
+
+.anim-quokka-float {
+  animation: gentleFloat 3.4s ease-in-out infinite;
+}
+
+.anim-bobo-pop {
+  animation: boboPop 2.8s ease-in-out infinite;
+}
