@@ -13,27 +13,87 @@ import {
 } from '../types/wardrobe';
 
 const LOCAL_VAULT_KEY = 'bobocloset_vault_state_v1';
+const LAST_NONEMPTY_VAULT_KEY = 'bobocloset_last_nonempty_v1';
 const PASSHASH_STORAGE_KEY = 'bobocloset_owner_passhash_v1';
+const LINKED_PASSHASHES_KEY = 'bobocloset_linked_passhashes_v1';
+
 const TEXTDB_UPDATE_URL = 'https://api.textdb.online/update/';
 const TEXTDB_READ_URL = 'https://textdb.online';
+const TEXTDB_DEV_API_URL = 'https://textdb.dev/api/data';
 const RELAY_BASE_URL = 'https://ntfy.sh';
 
 const IDB_NAME = 'BoboClosetDB';
 const IDB_VAULT_STORE = 'vault';
 const IDB_IMG_STORE = 'images';
 const IDB_MAIN_KEY = 'main_vault_v1';
+const IDB_PASSHASH_KEY = 'owner_passhash_v1';
+const IDB_SNAPSHOTS_KEY = 'history_snapshots_v1';
+const IDB_TIMEOUT_MS = 4500;
 
 const CLOUD_IMG_PREFIX = 'cloudimg:';
+const CLOUD_CHUNK_PREFIX = 'CLCHUNK1:';
+const CLOUD_CHUNK_MAX_CHARS = 40000;
+
+const FINGERPRINT_EMOJIS = ['🧸', '🥐', '🍮', '🍪', '🥛', '🍑', '🌼', '🧺'];
 
 export interface DerivedSyncChannels {
   vaultKey: string;
   imgPrefix: string;
   relayTopic: string;
   shareReadKey: string;
+  fingerprintBadge: string;
 }
+
+export interface LocalVaultSnapshot {
+  id: string;
+  savedAt: number;
+  itemCount: number;
+  outfitCount: number;
+  vault: ClosetVaultState;
+}
+
+export interface SyncVaultOutcome {
+  vault: ClosetVaultState;
+  synced: boolean;
+  pulledFromCloud: boolean;
+  pushedToCloud: boolean;
+  fingerprintBadge: string | null;
+  errorMessage?: string;
+}
+
+// In-memory photo mirror so environments without IndexedDB (or private browsing) never lose photos in-session
+const memoryImgCache = new Map<string, string>();
 
 function sanitizeToken(raw: string): string {
   return raw.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function withIdbTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallback);
+      }
+    }, IDB_TIMEOUT_MS);
+
+    promise
+      .then((val) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(val);
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(fallback);
+        }
+      });
+  });
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -44,7 +104,6 @@ async function sha256Hex(input: string): Promise<string> {
       .map((b) => b.toString(16).padStart(2, '0'))
       .join('');
   }
-  // Deterministic fallback for non-subtle test environments
   let h1 = 0xdeadbeef ^ input.length;
   let h2 = 0x41c6ce57 ^ input.length;
   for (let i = 0; i < input.length; i++) {
@@ -62,6 +121,38 @@ async function sha256Hex(input: string): Promise<string> {
 }
 
 /**
+ * 由 passhash 產生視覺化「雲端印記徽章」（如 🧸🥐 #A4F2），方便一眼核對主畫面 App 與瀏覽器是否連上同一個保險箱
+ */
+export function getVaultFingerprintBadge(passhash?: string | null): string | null {
+  const h = passhash ?? getSavedPasshash();
+  if (!h || h.length < 12) return null;
+  const b1 = Number.parseInt(h.slice(0, 2), 16) || 0;
+  const b2 = Number.parseInt(h.slice(2, 4), 16) || 0;
+  const e1 = FINGERPRINT_EMOJIS[b1 % FINGERPRINT_EMOJIS.length];
+  const e2 = FINGERPRINT_EMOJIS[b2 % FINGERPRINT_EMOJIS.length];
+  const code = h.slice(-4).toUpperCase();
+  return `${e1}${e2} #${code}`;
+}
+
+/**
+ * 產生 iOS 鍵盤常見自動首字大寫／全半形候選變體
+ */
+export function getPasscodeFallbackVariants(raw: string): string[] {
+  const exact = raw.trim();
+  if (!exact) return [];
+  const nfkc = exact.normalize('NFKC').trim();
+  const upperFirstOnly = nfkc.length > 0 ? nfkc[0].toUpperCase() + nfkc.slice(1) : nfkc;
+  const lowerFirstOnly = nfkc.length > 0 ? nfkc[0].toLowerCase() + nfkc.slice(1) : nfkc;
+  const lower = nfkc.toLowerCase();
+  const capFirstFromLower = lower.length > 0 ? lower[0].toUpperCase() + lower.slice(1) : lower;
+  return Array.from(
+    new Set(
+      [exact, nfkc, upperFirstOnly, lowerFirstOnly, lower, capFirstFromLower].filter(Boolean)
+    )
+  );
+}
+
+/**
  * 將使用者輸入的通行碼轉為不可逆 SHA-256 雜湊（公開程式碼零機密，跨瀏覽器輸入相同通行碼必定對齊同一金鑰）
  */
 export async function hashOwnerPasscode(passcode: string): Promise<string> {
@@ -71,6 +162,7 @@ export async function hashOwnerPasscode(passcode: string): Promise<string> {
 
 export function getSavedPasshash(): string | null {
   try {
+    if (typeof localStorage === 'undefined') return null;
     const val = localStorage.getItem(PASSHASH_STORAGE_KEY);
     return val && val.length >= 12 ? val : null;
   } catch {
@@ -80,20 +172,62 @@ export function getSavedPasshash(): string | null {
 
 export function savePasshash(passhash: string | null): void {
   try {
-    if (!passhash) {
-      localStorage.removeItem(PASSHASH_STORAGE_KEY);
-    } else {
-      localStorage.setItem(PASSHASH_STORAGE_KEY, passhash);
+    if (typeof localStorage !== 'undefined') {
+      if (!passhash) {
+        localStorage.removeItem(PASSHASH_STORAGE_KEY);
+        localStorage.removeItem(LINKED_PASSHASHES_KEY);
+      } else {
+        localStorage.setItem(PASSHASH_STORAGE_KEY, passhash);
+      }
     }
   } catch {
-    // ignore storage quota errors
+    // Shared-origin localStorage may be full; IndexedDB below still persists reliably
+  }
+  void idbPut(IDB_VAULT_STORE, IDB_PASSHASH_KEY, passhash || '');
+}
+
+export async function recoverPasshashFromIndexedDB(): Promise<string | null> {
+  const syncVal = getSavedPasshash();
+  if (syncVal) return syncVal;
+  const idbVal = await idbGet<string>(IDB_VAULT_STORE, IDB_PASSHASH_KEY);
+  if (idbVal && idbVal.length >= 12) {
+    try {
+      localStorage.setItem(PASSHASH_STORAGE_KEY, idbVal);
+    } catch {
+      // ignore quota error
+    }
+    return idbVal;
+  }
+  return null;
+}
+
+function getLinkedVariantHashes(): string[] {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(LINKED_PASSHASHES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((x) => typeof x === 'string' && x.length >= 12) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLinkedVariantHashes(hashes: string[]): void {
+  const unique = Array.from(new Set(hashes.filter((h) => h && h.length >= 12)));
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(LINKED_PASSHASHES_KEY, JSON.stringify(unique));
+    }
+  } catch {
+    // ignore
   }
 }
 
 export async function deriveSyncChannels(
   passhash?: string | null
 ): Promise<DerivedSyncChannels | null> {
-  const activeHash = passhash ?? getSavedPasshash();
+  const activeHash = passhash ?? (await recoverPasshashFromIndexedDB());
   if (!activeHash || activeHash.length < 12) return null;
 
   const vaultHex = await sha256Hex(`bobocloset_vault_kv_v1:${activeHash}`);
@@ -105,37 +239,238 @@ export async function deriveSyncChannels(
     imgPrefix: `bobocloset_img_v1_${vaultHex.slice(0, 20)}`,
     relayTopic: `bobocloset_sse_v1_${relayHex.slice(0, 30)}`,
     shareReadKey: shareHex.slice(0, 24),
+    fingerprintBadge: getVaultFingerprintBadge(activeHash) || '🧸 #SYNC',
   };
 }
 
 /**
- * 永久雲端 KV 寫入 (強制使用 application/x-www-form-urlencoded + URLSearchParams 防止 '+' 變空白字元)
+ * 寫入 textdb.online 單一分片：
+ * 1. 強制使用 application/x-www-form-urlencoded + URLSearchParams 防止 '+' 變空白字元
+ * 2. 強制檢查回傳 JSON `status === 1`，防止超過 20 萬字元上限時 HTTP 200 `{status: 0}` 假成功！
  */
-export async function writeTextDb(key: string, value: string): Promise<boolean> {
+async function writeTextDbOnlineSingle(key: string, value: string): Promise<boolean> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 9000) : null;
   try {
     const body = new URLSearchParams({ key, value }).toString();
-    const res = await fetch(TEXTDB_UPDATE_URL, {
+    const init: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
-    });
-    return res.ok;
+      signal: ctrl?.signal,
+    };
+    if (body.length < 55000) {
+      init.keepalive = true;
+    }
+    const res = await fetch(TEXTDB_UPDATE_URL, init);
+    if (!res.ok) return false;
+    const txt = (await res.text()).trim();
+    if (!txt) return true;
+    try {
+      const parsed = JSON.parse(txt) as { status?: number };
+      if (parsed && typeof parsed === 'object' && 'status' in parsed) {
+        return Number(parsed.status) === 1;
+      }
+    } catch {
+      // Non-JSON 200 OK fallback
+    }
+    return true;
   } catch {
     return false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
-export async function readTextDb(key: string): Promise<string | null> {
+/**
+ * 雙雲端備援寫入 (textdb.dev)，當 textdb.online 瞬斷或限流時仍可 100% 跨瀏覽器互通
+ */
+async function writeTextDbDevSingle(key: string, value: string): Promise<boolean> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 9000) : null;
+  try {
+    const bodyStr = JSON.stringify({ payload: value });
+    const init: RequestInit = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyStr,
+      signal: ctrl?.signal,
+    };
+    if (bodyStr.length < 55000) {
+      init.keepalive = true;
+    }
+    const res = await fetch(`${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}`, init);
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function writeChunkedToProvider(
+  baseKey: string,
+  fullValue: string,
+  writeSingle: (k: string, v: string) => Promise<boolean>
+): Promise<boolean> {
+  if (fullValue.length <= CLOUD_CHUNK_MAX_CHARS) {
+    return writeSingle(baseKey, fullValue);
+  }
+  const chunks: string[] = [];
+  for (let i = 0; i < fullValue.length; i += CLOUD_CHUNK_MAX_CHARS) {
+    chunks.push(fullValue.slice(i, i + CLOUD_CHUNK_MAX_CHARS));
+  }
+  for (let idx = 1; idx < chunks.length; idx++) {
+    const ok = await writeSingle(`${baseKey}_p${idx}`, chunks[idx]);
+    if (!ok) return false;
+  }
+  const header = `${CLOUD_CHUNK_PREFIX}${chunks.length}:${chunks[0]}`;
+  return writeSingle(baseKey, header);
+}
+
+/**
+ * 永久雲端雙引擎寫入（自動分片防爆字數 + 嚴格驗證寫入成功）
+ */
+export async function writeTextDb(key: string, value: string): Promise<boolean> {
+  const [okOnline, okDev] = await Promise.all([
+    writeChunkedToProvider(key, value, writeTextDbOnlineSingle),
+    writeChunkedToProvider(key, value, writeTextDbDevSingle),
+  ]);
+  return okOnline || okDev;
+}
+
+async function readTextDbOnlineSingle(key: string): Promise<string | null> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7500) : null;
   try {
     const res = await fetch(`${TEXTDB_READ_URL}/${encodeURIComponent(key)}?t=${Date.now()}`, {
       cache: 'no-store',
+      signal: ctrl?.signal,
     });
     if (!res.ok) return null;
     const text = (await res.text()).trim();
     return text.length > 0 ? text : null;
   } catch {
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+}
+
+async function readTextDbDevSingle(key: string): Promise<string | null> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7500) : null;
+  try {
+    const res = await fetch(`${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}?t=${Date.now()}`, {
+      cache: 'no-store',
+      signal: ctrl?.signal,
+    });
+    if (!res.ok) return null;
+    const text = (await res.text()).trim();
+    if (!text) return null;
+    let parsed: unknown = JSON.parse(text);
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    if (parsed && typeof parsed === 'object' && 'payload' in parsed) {
+      const p = (parsed as { payload?: unknown }).payload;
+      return typeof p === 'string' && p.trim().length > 0 ? p.trim() : null;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function readChunkedFromProvider(
+  baseKey: string,
+  readSingle: (k: string) => Promise<string | null>
+): Promise<string | null> {
+  const head = await readSingle(baseKey);
+  if (!head) return null;
+  const matchedPrefix = head.startsWith(CLOUD_CHUNK_PREFIX)
+    ? CLOUD_CHUNK_PREFIX
+    : head.startsWith('BCCHUNK1:')
+    ? 'BCCHUNK1:'
+    : null;
+  if (!matchedPrefix) {
+    return head;
+  }
+  const rest = head.slice(matchedPrefix.length);
+  const colonIdx = rest.indexOf(':');
+  if (colonIdx <= 0) return null;
+  const totalChunks = Number.parseInt(rest.slice(0, colonIdx), 10);
+  const chunk0 = rest.slice(colonIdx + 1);
+  if (!Number.isFinite(totalChunks) || totalChunks < 2 || totalChunks > 60) return null;
+
+  const tailPromises: Array<Promise<string | null>> = [];
+  for (let idx = 1; idx < totalChunks; idx++) {
+    tailPromises.push(readSingle(`${baseKey}_p${idx}`));
+  }
+  const tails = await Promise.all(tailPromises);
+  if (tails.some((part) => !part)) return null;
+  return chunk0 + tails.join('');
+}
+
+export async function readTextDb(key: string): Promise<string | null> {
+  const [onlineVal, devVal] = await Promise.all([
+    readChunkedFromProvider(key, readTextDbOnlineSingle),
+    readChunkedFromProvider(key, readTextDbDevSingle),
+  ]);
+  return onlineVal || devVal || null;
+}
+
+async function readAllCloudVaultCandidates(vaultKey: string): Promise<ClosetVaultState[]> {
+  const [onlineRaw, devRaw] = await Promise.all([
+    readChunkedFromProvider(vaultKey, readTextDbOnlineSingle),
+    readChunkedFromProvider(vaultKey, readTextDbDevSingle),
+  ]);
+  const results: ClosetVaultState[] = [];
+  for (const raw of Array.from(new Set([onlineRaw, devRaw].filter(Boolean) as string[]))) {
+    try {
+      const decompressed = LZString.decompressFromEncodedURIComponent(raw);
+      if (!decompressed) continue;
+      const parsed = JSON.parse(decompressed) as ClosetVaultState;
+      if (parsed && Array.isArray(parsed.items) && Array.isArray(parsed.outfits)) {
+        results.push(parsed);
+      }
+    } catch {
+      // ignore malformed candidate
+    }
+  }
+  return results;
+}
+
+/**
+ * 綁定通行碼時，自動檢查 iOS 首字大小寫候選變體是否已有既有雲端保險箱，
+ * 若精確輸入查無資料但變體已有資料，自動對齊既有 passhash 並關聯所有變體，無損互通！
+ */
+export async function resolveBestPasshashOnBind(rawPasscode: string): Promise<string> {
+  const variants = getPasscodeFallbackVariants(rawPasscode);
+  if (variants.length === 0) {
+    return hashOwnerPasscode(rawPasscode);
+  }
+  const checks = await Promise.all(
+    variants.map(async (v) => {
+      const h = await hashOwnerPasscode(v);
+      const ch = await deriveSyncChannels(h);
+      const vaults = ch ? await readAllCloudVaultCandidates(ch.vaultKey) : [];
+      const maxTs = vaults.reduce((m, x) => Math.max(m, x.updatedAt || 0), 0);
+      return { h, vaults, maxTs };
+    })
+  );
+
+  saveLinkedVariantHashes(checks.map((c) => c.h));
+
+  const exactCheck = checks[0];
+  if (exactCheck.vaults.length > 0) {
+    return exactCheck.h;
+  }
+  const existing = checks.filter((c) => c.vaults.length > 0).sort((a, b) => b.maxTs - a.maxTs);
+  if (existing.length > 0) {
+    return existing[0].h;
+  }
+  return exactCheck.h;
 }
 
 /**
@@ -153,7 +488,10 @@ export async function requestPersistentStorage(): Promise<boolean> {
           ? await navigator.storage.persisted()
           : false;
       if (persisted) return true;
-      return await navigator.storage.persist();
+      return await Promise.race([
+        navigator.storage.persist(),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1500)),
+      ]);
     }
   } catch {
     // ignore
@@ -162,7 +500,7 @@ export async function requestPersistentStorage(): Promise<boolean> {
 }
 
 function openBoboClosetDb(): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
+  const rawPromise = new Promise<IDBDatabase | null>((resolve) => {
     try {
       if (typeof indexedDB === 'undefined') {
         resolve(null);
@@ -180,16 +518,18 @@ function openBoboClosetDb(): Promise<IDBDatabase | null> {
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
     } catch {
       resolve(null);
     }
   });
+  return withIdbTimeout(rawPromise, null);
 }
 
 async function idbPut(storeName: string, key: string, value: unknown): Promise<void> {
   const db = await openBoboClosetDb();
   if (!db) return;
-  return new Promise((resolve) => {
+  const op = new Promise<void>((resolve) => {
     try {
       const tx = db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).put(value, key);
@@ -201,17 +541,22 @@ async function idbPut(storeName: string, key: string, value: unknown): Promise<v
         db.close();
         resolve();
       };
+      tx.onabort = () => {
+        db.close();
+        resolve();
+      };
     } catch {
       db.close();
       resolve();
     }
   });
+  await withIdbTimeout(op, undefined);
 }
 
 async function idbGet<T>(storeName: string, key: string): Promise<T | null> {
   const db = await openBoboClosetDb();
   if (!db) return null;
-  return new Promise((resolve) => {
+  const op = new Promise<T | null>((resolve) => {
     try {
       const tx = db.transaction(storeName, 'readonly');
       const req = tx.objectStore(storeName).get(key);
@@ -229,6 +574,7 @@ async function idbGet<T>(storeName: string, key: string): Promise<T | null> {
       resolve(null);
     }
   });
+  return withIdbTimeout(op, null);
 }
 
 /**
@@ -264,12 +610,17 @@ export function injectRepoManagedCatalog(vault: ClosetVaultState): ClosetVaultSt
     if ((deletedItems[item.id] || 0) > (item.updatedAt || 1000)) continue;
     const existing = itemMap.get(item.id);
     if (!existing || (item.updatedAt || 1000) >= (existing.updatedAt || 1000)) {
+      const hasCustomUserPhoto = Boolean(item.imageUrl?.startsWith('data:image/'));
       itemMap.set(item.id, {
         ...item,
         imageUrl: item.imageUrl || existing?.imageUrl,
-        flatlayUrl: item.flatlayUrl || existing?.flatlayUrl,
+        flatlayUrl: hasCustomUserPhoto
+          ? item.flatlayUrl
+          : item.flatlayUrl || existing?.flatlayUrl,
         realCropUrl: item.realCropUrl || existing?.realCropUrl,
-        pastelUrl: item.pastelUrl || existing?.pastelUrl,
+        pastelUrl: hasCustomUserPhoto
+          ? item.pastelUrl
+          : item.pastelUrl || existing?.pastelUrl,
       });
     }
   }
@@ -298,10 +649,9 @@ export function injectRepoManagedCatalog(vault: ClosetVaultState): ClosetVaultSt
   };
 }
 
-export function loadLocalVault(): ClosetVaultState | null {
+function parseVaultStorageJson(raw: string | null): ClosetVaultState | null {
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(LOCAL_VAULT_KEY);
-    if (!raw) return null;
     const parsed = JSON.parse(raw) as ClosetVaultState;
     if (parsed && Array.isArray(parsed.items) && Array.isArray(parsed.outfits)) {
       return injectRepoManagedCatalog(parsed);
@@ -312,6 +662,20 @@ export function loadLocalVault(): ClosetVaultState | null {
   return null;
 }
 
+export function loadLocalVault(): ClosetVaultState | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const primary = parseVaultStorageJson(localStorage.getItem(LOCAL_VAULT_KEY));
+    const backup = parseVaultStorageJson(localStorage.getItem(LAST_NONEMPTY_VAULT_KEY));
+    if (primary && backup) {
+      return mergeVaultStates(primary, backup);
+    }
+    return primary || backup;
+  } catch {
+    return null;
+  }
+}
+
 export async function recoverVaultFromIndexedDB(): Promise<ClosetVaultState | null> {
   const saved = await idbGet<ClosetVaultState>(IDB_VAULT_STORE, IDB_MAIN_KEY);
   if (saved && Array.isArray(saved.items) && Array.isArray(saved.outfits)) {
@@ -320,32 +684,197 @@ export async function recoverVaultFromIndexedDB(): Promise<ClosetVaultState | nu
   return null;
 }
 
-export function saveLocalVault(vault: ClosetVaultState): void {
+export async function listLocalVaultSnapshots(): Promise<LocalVaultSnapshot[]> {
   try {
-    // Try saving full vault to localStorage; if images exceed ~4.5MB localStorage quota, save slimmed copy to localStorage & full copy to IndexedDB
-    const json = JSON.stringify(vault);
-    try {
-      localStorage.setItem(LOCAL_VAULT_KEY, json);
-    } catch {
-      const slim: ClosetVaultState = {
-        ...vault,
-        items: vault.items.map((i) =>
-          i.imageUrl?.startsWith('data:image/') ? { ...i, imageUrl: undefined } : i
-        ),
-        outfits: vault.outfits.map((o) =>
-          o.selfieUrl?.startsWith('data:image/') ? { ...o, selfieUrl: undefined } : o
-        ),
-      };
-      localStorage.setItem(LOCAL_VAULT_KEY, JSON.stringify(slim));
-    }
+    const snaps = await idbGet<LocalVaultSnapshot[]>(IDB_VAULT_STORE, IDB_SNAPSHOTS_KEY);
+    return Array.isArray(snaps) ? snaps : [];
   } catch {
-    // ignore
+    return [];
   }
-  void idbPut(IDB_VAULT_STORE, IDB_MAIN_KEY, vault);
 }
 
 /**
- * 智慧合併兩份衣櫥狀態（比較單品 updatedAt 時間戳 + 尊重 deletedItemIds / deletedOutfitIds 墓碑紀錄，防空白覆蓋！）
+ * 完整載入並無損合併 localStorage 與 IndexedDB（防止同網域 5MB localStorage 滿載時遺漏 IndexedDB 最新單品與照片）
+ */
+export async function loadFullLocalVaultState(): Promise<ClosetVaultState> {
+  const lsVault = loadLocalVault();
+  const idbVault = await recoverVaultFromIndexedDB();
+
+  let best: ClosetVaultState;
+  if (lsVault && idbVault) {
+    best = mergeVaultStates(lsVault, idbVault);
+  } else {
+    best = lsVault || idbVault || createInitialVaultState();
+  }
+
+  const hydratedItems = await Promise.all(
+    best.items.map(async (item) => {
+      const resolveLocalPic = async (
+        fieldVal: string | undefined,
+        slot: string
+      ): Promise<string | undefined> => {
+        if (fieldVal && fieldVal.startsWith('data:image/')) return fieldVal;
+        const memKey = `local_item_${item.id}_${slot}`;
+        const fromMem = memoryImgCache.get(memKey);
+        if (fromMem?.startsWith('data:image/')) return fromMem;
+        const fromIdb = await idbGet<string>(IDB_IMG_STORE, memKey);
+        if (fromIdb?.startsWith('data:image/')) return fromIdb;
+        return fieldVal;
+      };
+
+      const imageUrl = await resolveLocalPic(item.imageUrl, 'imageUrl');
+      const realCropUrl = await resolveLocalPic(item.realCropUrl, 'realCropUrl');
+      const flatlayUrl = await resolveLocalPic(item.flatlayUrl, 'flatlayUrl');
+      const pastelUrl = await resolveLocalPic(item.pastelUrl, 'pastelUrl');
+
+      return {
+        ...item,
+        imageUrl,
+        realCropUrl,
+        flatlayUrl,
+        pastelUrl,
+      };
+    })
+  );
+
+  const hydratedOutfits = await Promise.all(
+    best.outfits.map(async (outfit) => {
+      if (outfit.selfieUrl && outfit.selfieUrl.startsWith('data:image/')) {
+        return outfit;
+      }
+      const memKey = `local_outfit_${outfit.id}`;
+      const localSelfie =
+        memoryImgCache.get(memKey) || (await idbGet<string>(IDB_IMG_STORE, memKey));
+      if (localSelfie && localSelfie.startsWith('data:image/')) {
+        return { ...outfit, selfieUrl: localSelfie };
+      }
+      return outfit;
+    })
+  );
+
+  return {
+    ...best,
+    items: hydratedItems,
+    outfits: hydratedOutfits,
+  };
+}
+
+function buildSlimVaultForLocalStorage(vault: ClosetVaultState): string {
+  const slim: ClosetVaultState = {
+    ...vault,
+    items: vault.items.map((i) => ({
+      ...i,
+      imageUrl: i.imageUrl?.startsWith('data:image/') ? undefined : i.imageUrl,
+      realCropUrl: i.realCropUrl?.startsWith('data:image/') ? undefined : i.realCropUrl,
+      flatlayUrl: i.flatlayUrl?.startsWith('data:image/') ? undefined : i.flatlayUrl,
+      pastelUrl: i.pastelUrl?.startsWith('data:image/') ? undefined : i.pastelUrl,
+    })),
+    outfits: vault.outfits.map((o) => ({
+      ...o,
+      selfieUrl: o.selfieUrl?.startsWith('data:image/') ? undefined : o.selfieUrl,
+    })),
+  };
+  return JSON.stringify(slim);
+}
+
+/**
+ * 將衣櫥寫入本機雙重備份：
+ * - localStorage 一律儲存剝離 Base64 大圖後的輕量索引（釋放同網域 https://liu88219.github.io 5MB 配額！）
+ * - IndexedDB + 記憶體快取完整保存 100% 原始照片與歷史快照
+ */
+export function saveLocalVault(vault: ClosetVaultState): void {
+  const hasEdits = (vault.updatedAt || 1000) > 1000;
+
+  // Cache data:image/* in memory immediately before async IndexedDB write completes
+  for (const item of vault.items) {
+    if (item.imageUrl?.startsWith('data:image/')) {
+      memoryImgCache.set(`local_item_${item.id}_imageUrl`, item.imageUrl);
+    }
+    if (item.realCropUrl?.startsWith('data:image/')) {
+      memoryImgCache.set(`local_item_${item.id}_realCropUrl`, item.realCropUrl);
+    }
+    if (item.flatlayUrl?.startsWith('data:image/')) {
+      memoryImgCache.set(`local_item_${item.id}_flatlayUrl`, item.flatlayUrl);
+    }
+    if (item.pastelUrl?.startsWith('data:image/')) {
+      memoryImgCache.set(`local_item_${item.id}_pastelUrl`, item.pastelUrl);
+    }
+  }
+  for (const outfit of vault.outfits) {
+    if (outfit.selfieUrl?.startsWith('data:image/')) {
+      memoryImgCache.set(`local_outfit_${outfit.id}`, outfit.selfieUrl);
+    }
+  }
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const slimJson = buildSlimVaultForLocalStorage(vault);
+      localStorage.setItem(LOCAL_VAULT_KEY, slimJson);
+      if (hasEdits) {
+        localStorage.setItem(LAST_NONEMPTY_VAULT_KEY, slimJson);
+      }
+    }
+  } catch {
+    // Shared-origin localStorage temporarily full; IndexedDB below stores 100% of state + photos
+  }
+
+  void (async () => {
+    await idbPut(IDB_VAULT_STORE, IDB_MAIN_KEY, vault);
+    for (const item of vault.items) {
+      if (item.imageUrl?.startsWith('data:image/')) {
+        await idbPut(IDB_IMG_STORE, `local_item_${item.id}_imageUrl`, item.imageUrl);
+      }
+      if (item.realCropUrl?.startsWith('data:image/')) {
+        await idbPut(IDB_IMG_STORE, `local_item_${item.id}_realCropUrl`, item.realCropUrl);
+      }
+      if (item.flatlayUrl?.startsWith('data:image/')) {
+        await idbPut(IDB_IMG_STORE, `local_item_${item.id}_flatlayUrl`, item.flatlayUrl);
+      }
+      if (item.pastelUrl?.startsWith('data:image/')) {
+        await idbPut(IDB_IMG_STORE, `local_item_${item.id}_pastelUrl`, item.pastelUrl);
+      }
+    }
+    for (const outfit of vault.outfits) {
+      if (outfit.selfieUrl?.startsWith('data:image/')) {
+        await idbPut(IDB_IMG_STORE, `local_outfit_${outfit.id}`, outfit.selfieUrl);
+      }
+    }
+    if (hasEdits) {
+      try {
+        const existing = await listLocalVaultSnapshots();
+        const now = Date.now();
+        if (!existing[0] || now - existing[0].savedAt > 90000) {
+          const snap: LocalVaultSnapshot = {
+            id: `snap-${now}`,
+            savedAt: now,
+            itemCount: vault.items.filter((i) => !i.isSample).length || vault.items.length,
+            outfitCount: vault.outfits.length,
+            vault,
+          };
+          await idbPut(IDB_VAULT_STORE, IDB_SNAPSHOTS_KEY, [snap, ...existing].slice(0, 6));
+        }
+      } catch {
+        // ignore snapshot error
+      }
+    }
+  })();
+}
+
+function pickBestVisualField(
+  newerVal: string | undefined,
+  olderVal: string | undefined
+): string | undefined {
+  if (newerVal && !newerVal.startsWith(CLOUD_IMG_PREFIX)) {
+    return newerVal;
+  }
+  if (olderVal && !olderVal.startsWith(CLOUD_IMG_PREFIX)) {
+    return olderVal;
+  }
+  return newerVal || olderVal;
+}
+
+/**
+ * 智慧合併兩份衣櫥狀態（比較單品 updatedAt 時間戳 + 尊重 deletedItemIds / deletedOutfitIds 墓碑紀錄，防空白覆蓋、絕不亂刪既有內容！）
  */
 export function mergeVaultStates(
   local: ClosetVaultState,
@@ -373,20 +902,22 @@ export function mergeVaultStates(
     } else {
       const existingTs = existing.updatedAt || 1000;
       const candTs = cand.updatedAt || 1000;
-      if (candTs > existingTs) {
+      if (candTs >= existingTs) {
         itemById.set(cand.id, {
           ...cand,
-          imageUrl:
-            cand.imageUrl && !cand.imageUrl.startsWith(CLOUD_IMG_PREFIX)
-              ? cand.imageUrl
-              : existing.imageUrl || cand.imageUrl,
+          imageUrl: pickBestVisualField(cand.imageUrl, existing.imageUrl),
+          realCropUrl: pickBestVisualField(cand.realCropUrl, existing.realCropUrl),
+          flatlayUrl: pickBestVisualField(cand.flatlayUrl, existing.flatlayUrl),
+          pastelUrl: pickBestVisualField(cand.pastelUrl, existing.pastelUrl),
         });
-      } else if (
-        (!existing.imageUrl || existing.imageUrl.startsWith(CLOUD_IMG_PREFIX)) &&
-        cand.imageUrl &&
-        !cand.imageUrl.startsWith(CLOUD_IMG_PREFIX)
-      ) {
-        itemById.set(cand.id, { ...existing, imageUrl: cand.imageUrl });
+      } else {
+        itemById.set(cand.id, {
+          ...existing,
+          imageUrl: pickBestVisualField(existing.imageUrl, cand.imageUrl),
+          realCropUrl: pickBestVisualField(existing.realCropUrl, cand.realCropUrl),
+          flatlayUrl: pickBestVisualField(existing.flatlayUrl, cand.flatlayUrl),
+          pastelUrl: pickBestVisualField(existing.pastelUrl, cand.pastelUrl),
+        });
       }
     }
   }
@@ -403,20 +934,16 @@ export function mergeVaultStates(
     } else {
       const existingTs = existing.updatedAt || 1000;
       const candTs = cand.updatedAt || 1000;
-      if (candTs > existingTs) {
+      if (candTs >= existingTs) {
         outfitById.set(cand.id, {
           ...cand,
-          selfieUrl:
-            cand.selfieUrl && !cand.selfieUrl.startsWith(CLOUD_IMG_PREFIX)
-              ? cand.selfieUrl
-              : existing.selfieUrl || cand.selfieUrl,
+          selfieUrl: pickBestVisualField(cand.selfieUrl, existing.selfieUrl),
         });
-      } else if (
-        (!existing.selfieUrl || existing.selfieUrl.startsWith(CLOUD_IMG_PREFIX)) &&
-        cand.selfieUrl &&
-        !cand.selfieUrl.startsWith(CLOUD_IMG_PREFIX)
-      ) {
-        outfitById.set(cand.id, { ...existing, selfieUrl: cand.selfieUrl });
+      } else {
+        outfitById.set(cand.id, {
+          ...existing,
+          selfieUrl: pickBestVisualField(existing.selfieUrl, cand.selfieUrl),
+        });
       }
     }
   }
@@ -462,175 +989,378 @@ export function mergeVaultStates(
   });
 }
 
+async function makePhotoShardToken(
+  entityKey: string,
+  dataUrl: string
+): Promise<{
+  token: string;
+  shardSuffix: string;
+}> {
+  const hash16 = (await sha256Hex(dataUrl)).slice(0, 16);
+  const safeEntity = sanitizeToken(entityKey).slice(0, 36);
+  const shardSuffix = `${safeEntity}_${hash16}`;
+  return {
+    token: `${CLOUD_IMG_PREFIX}${shardSuffix}`,
+    shardSuffix,
+  };
+}
+
 async function uploadDataUrlShard(
   imgPrefix: string,
-  entityId: string,
+  shardSuffix: string,
   dataUrl: string
-): Promise<void> {
-  const shardKey = `${imgPrefix}_${sanitizeToken(entityId)}`;
-  const cached = await idbGet<string>(IDB_IMG_STORE, shardKey);
-  if (cached === dataUrl) {
-    return;
+): Promise<boolean> {
+  const shardKey = `${imgPrefix}_${shardSuffix}`;
+  const verifiedMarker = await idbGet<string>(IDB_VAULT_STORE, `uploaded_v2:${shardKey}`);
+  if (verifiedMarker === '1') {
+    return true;
   }
   const compressed = LZString.compressToEncodedURIComponent(dataUrl);
   const ok = await writeTextDb(shardKey, compressed);
   if (ok) {
+    memoryImgCache.set(shardKey, dataUrl);
     await idbPut(IDB_IMG_STORE, shardKey, dataUrl);
+    await idbPut(IDB_VAULT_STORE, `uploaded_v2:${shardKey}`, '1');
   }
+  return ok;
 }
 
-async function hydrateDataUrlShard(
-  imgPrefix: string,
-  entityId: string
+async function hydrateCloudImgToken(
+  token: string | undefined,
+  imgPrefixes: string[],
+  legacyEntityPrefix: 'item' | 'outfit'
 ): Promise<string | undefined> {
-  const shardKey = `${imgPrefix}_${sanitizeToken(entityId)}`;
-  const cached = await idbGet<string>(IDB_IMG_STORE, shardKey);
-  if (cached && cached.startsWith('data:image/')) {
-    return cached;
+  if (!token || !token.startsWith(CLOUD_IMG_PREFIX)) {
+    return token;
   }
-  const raw = await readTextDb(shardKey);
-  if (!raw) return undefined;
-  const decompressed = LZString.decompressFromEncodedURIComponent(raw);
-  if (decompressed && decompressed.startsWith('data:image/')) {
-    await idbPut(IDB_IMG_STORE, shardKey, decompressed);
-    return decompressed;
+  const rawSuffix = token.slice(CLOUD_IMG_PREFIX.length);
+  for (const prefix of imgPrefixes) {
+    const candidateKeys = Array.from(
+      new Set([
+        `${prefix}_${sanitizeToken(rawSuffix)}`,
+        `${prefix}_${legacyEntityPrefix}_${sanitizeToken(rawSuffix)}`,
+      ])
+    );
+    for (const shardKey of candidateKeys) {
+      const mem = memoryImgCache.get(shardKey);
+      if (mem && mem.startsWith('data:image/')) {
+        return mem;
+      }
+      const cached = await idbGet<string>(IDB_IMG_STORE, shardKey);
+      if (cached && cached.startsWith('data:image/')) {
+        memoryImgCache.set(shardKey, cached);
+        return cached;
+      }
+      const raw = await readTextDb(shardKey);
+      if (!raw) continue;
+      const decompressed = LZString.decompressFromEncodedURIComponent(raw);
+      if (decompressed && decompressed.startsWith('data:image/')) {
+        memoryImgCache.set(shardKey, decompressed);
+        await idbPut(IDB_IMG_STORE, shardKey, decompressed);
+        return decompressed;
+      }
+    }
   }
   return undefined;
 }
 
+async function hydrateRemoteVaultPhotos(
+  remoteVault: ClosetVaultState,
+  localVault: ClosetVaultState,
+  imgPrefixes: string[]
+): Promise<ClosetVaultState> {
+  const hydratedItems = await Promise.all(
+    remoteVault.items.map(async (item) => {
+      const localMatch = localVault.items.find((l) => l.id === item.id);
+      const localHasSameOrNewer =
+        localMatch && (localMatch.updatedAt || 0) >= (item.updatedAt || 0);
+
+      const resolveField = async (
+        remoteField: string | undefined,
+        localField: string | undefined
+      ): Promise<string | undefined> => {
+        if (!remoteField?.startsWith(CLOUD_IMG_PREFIX)) {
+          return remoteField;
+        }
+        if (localHasSameOrNewer && localField?.startsWith('data:image/')) {
+          return localField;
+        }
+        const fetched = await hydrateCloudImgToken(remoteField, imgPrefixes, 'item');
+        return fetched || (localField?.startsWith('data:image/') ? localField : undefined);
+      };
+
+      const imageUrl = await resolveField(item.imageUrl, localMatch?.imageUrl);
+      const realCropUrl = await resolveField(item.realCropUrl, localMatch?.realCropUrl);
+      const flatlayUrl = await resolveField(item.flatlayUrl, localMatch?.flatlayUrl);
+      const pastelUrl = await resolveField(item.pastelUrl, localMatch?.pastelUrl);
+
+      return {
+        ...item,
+        imageUrl,
+        realCropUrl,
+        flatlayUrl,
+        pastelUrl,
+      };
+    })
+  );
+
+  const hydratedOutfits = await Promise.all(
+    remoteVault.outfits.map(async (outfit) => {
+      if (outfit.selfieUrl?.startsWith(CLOUD_IMG_PREFIX)) {
+        const localMatch = localVault.outfits.find((l) => l.id === outfit.id);
+        if (
+          localMatch &&
+          (localMatch.updatedAt || 0) >= (outfit.updatedAt || 0) &&
+          localMatch.selfieUrl?.startsWith('data:image/')
+        ) {
+          return { ...outfit, selfieUrl: localMatch.selfieUrl };
+        }
+        const imgData = await hydrateCloudImgToken(outfit.selfieUrl, imgPrefixes, 'outfit');
+        return {
+          ...outfit,
+          selfieUrl:
+            imgData ||
+            (localMatch?.selfieUrl?.startsWith('data:image/') ? localMatch.selfieUrl : undefined),
+        };
+      }
+      return outfit;
+    })
+  );
+
+  return {
+    ...remoteVault,
+    items: hydratedItems,
+    outfits: hydratedOutfits,
+  };
+}
+
+function vaultStateDigest(v: ClosetVaultState): string {
+  const itemSig = v.items
+    .map(
+      (i) =>
+        `${i.id}:${i.updatedAt || 0}:${i.wearCount || 0}:${i.inLaundry ? 1 : 0}:${
+          i.isFavorite ? 1 : 0
+        }`
+    )
+    .sort()
+    .join('|');
+  const outfitSig = v.outfits
+    .map((o) => `${o.id}:${o.updatedAt || 0}:${o.wornDate || ''}`)
+    .sort()
+    .join('|');
+  const delItemSig = Object.entries(v.deletedItemIds || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, t]) => `${k}:${t}`)
+    .join('|');
+  const delOutfitSig = Object.entries(v.deletedOutfitIds || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, t]) => `${k}:${t}`)
+    .join('|');
+  const customSubSig = JSON.stringify(v.customSubCategories || {});
+  return `${v.hideSamples ? 1 : 0}#${itemSig}#${outfitSig}#${delItemSig}#${delOutfitSig}#${customSubSig}`;
+}
+
+async function prepareAndPushCompactVault(
+  merged: ClosetVaultState,
+  targetChannelsList: DerivedSyncChannels[]
+): Promise<boolean> {
+  if (targetChannelsList.length === 0) return false;
+  const primaryChannels = targetChannelsList[0];
+
+  // Collect & deduplicate every inline data:image/* across ALL 4 garment image fields + outfit selfieUrl
+  const pendingUploads = new Map<string, { shardSuffix: string; dataUrl: string }>();
+
+  const tokenizeIfDataUrl = async (
+    entityKey: string,
+    val: string | undefined
+  ): Promise<string | undefined> => {
+    if (!val || !val.startsWith('data:image/')) return val;
+    const { token, shardSuffix } = await makePhotoShardToken(entityKey, val);
+    if (!pendingUploads.has(shardSuffix)) {
+      pendingUploads.set(shardSuffix, { shardSuffix, dataUrl: val });
+    }
+    return token;
+  };
+
+  const compactItems: WardrobeItem[] = [];
+  for (const item of merged.items) {
+    const imageUrl = await tokenizeIfDataUrl(`item_${item.id}`, item.imageUrl);
+    const realCropUrl = await tokenizeIfDataUrl(`item_${item.id}`, item.realCropUrl);
+    const flatlayUrl = await tokenizeIfDataUrl(`item_${item.id}`, item.flatlayUrl);
+    const pastelUrl = await tokenizeIfDataUrl(`item_${item.id}`, item.pastelUrl);
+    compactItems.push({
+      ...item,
+      imageUrl,
+      realCropUrl,
+      flatlayUrl,
+      pastelUrl,
+    });
+  }
+
+  const compactOutfits: SavedOutfit[] = [];
+  for (const outfit of merged.outfits) {
+    const selfieUrl = await tokenizeIfDataUrl(`outfit_${outfit.id}`, outfit.selfieUrl);
+    compactOutfits.push({
+      ...outfit,
+      selfieUrl,
+    });
+  }
+
+  const uploadEntries = Array.from(pendingUploads.values());
+  const BATCH_SIZE = 3;
+  for (let i = 0; i < uploadEntries.length; i += BATCH_SIZE) {
+    const batch = uploadEntries.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(
+      batch.map(async ({ shardSuffix, dataUrl }) => {
+        const resPerCh = await Promise.all(
+          targetChannelsList.map((ch) => uploadDataUrlShard(ch.imgPrefix, shardSuffix, dataUrl))
+        );
+        return resPerCh.some(Boolean);
+      })
+    );
+    if (batchResults.some((ok) => !ok)) {
+      return false;
+    }
+  }
+
+  const compactVaultForCloud: ClosetVaultState = {
+    ...merged,
+    items: compactItems,
+    outfits: compactOutfits,
+  };
+
+  const encoded = LZString.compressToEncodedURIComponent(JSON.stringify(compactVaultForCloud));
+
+  const pushResults = await Promise.all(
+    targetChannelsList.map((ch) => writeTextDb(ch.vaultKey, encoded))
+  );
+  const pushedOk = pushResults.some(Boolean);
+
+  if (pushedOk) {
+    const shareKey = `bobocloset_share_v1_${primaryChannels.shareReadKey}`;
+    void writeTextDb(shareKey, encoded);
+
+    for (const ch of targetChannelsList) {
+      try {
+        await fetch(`${RELAY_BASE_URL}/${ch.relayTopic}`, {
+          method: 'POST',
+          body: JSON.stringify({ event: 'vault_updated', updatedAt: merged.updatedAt }),
+          keepalive: true,
+        });
+      } catch {
+        // ignore live relay network error; permanent KV is source of truth
+      }
+    }
+  }
+
+  return pushedOk;
+}
+
 /**
- * 雙向雲端同步（先 Pull 後 Merge 再視條件 Push，嚴格遵守防空白覆蓋鐵則！）
+ * 雙向雲端同步（先 Pull 雙雲端與關聯大小寫通道 -> 無損 Merge -> 自動分片 Push 並嚴格驗證寫入結果！）
  */
 export async function syncVaultWithCloud(
   localVault: ClosetVaultState,
   forcePush = false
-): Promise<{ vault: ClosetVaultState; synced: boolean }> {
-  const channels = await deriveSyncChannels();
-  if (!channels) {
-    return { vault: localVault, synced: false };
-  }
-
-  // Step 1: ALWAYS Pull remote vault first!
-  let remoteVault: ClosetVaultState | null = null;
-  const rawRemote = await readTextDb(channels.vaultKey);
-  if (rawRemote) {
-    try {
-      const decompressed = LZString.decompressFromEncodedURIComponent(rawRemote);
-      if (decompressed) {
-        const parsed = JSON.parse(decompressed) as ClosetVaultState;
-        if (parsed && Array.isArray(parsed.items) && Array.isArray(parsed.outfits)) {
-          remoteVault = parsed;
-        }
-      }
-    } catch {
-      // ignore malformed remote payload
-    }
-  }
-
-  // Step 2: Hydrate any sharded cloud images from remoteVault
-  if (remoteVault) {
-    const hydratedItems = await Promise.all(
-      remoteVault.items.map(async (item) => {
-        if (item.imageUrl?.startsWith(CLOUD_IMG_PREFIX)) {
-          const localMatch = localVault.items.find(
-            (l) => l.id === item.id && l.imageUrl?.startsWith('data:image/')
-          );
-          if (localMatch && (localMatch.updatedAt || 0) >= (item.updatedAt || 0)) {
-            return { ...item, imageUrl: localMatch.imageUrl };
-          }
-          const imgData = await hydrateDataUrlShard(channels.imgPrefix, `item_${item.id}`);
-          return { ...item, imageUrl: imgData || localMatch?.imageUrl };
-        }
-        return item;
-      })
-    );
-
-    const hydratedOutfits = await Promise.all(
-      remoteVault.outfits.map(async (outfit) => {
-        if (outfit.selfieUrl?.startsWith(CLOUD_IMG_PREFIX)) {
-          const localMatch = localVault.outfits.find(
-            (l) => l.id === outfit.id && l.selfieUrl?.startsWith('data:image/')
-          );
-          if (localMatch && (localMatch.updatedAt || 0) >= (outfit.updatedAt || 0)) {
-            return { ...outfit, selfieUrl: localMatch.selfieUrl };
-          }
-          const imgData = await hydrateDataUrlShard(channels.imgPrefix, `outfit_${outfit.id}`);
-          return { ...outfit, selfieUrl: imgData || localMatch?.selfieUrl };
-        }
-        return outfit;
-      })
-    );
-
-    remoteVault = {
-      ...remoteVault,
-      items: hydratedItems,
-      outfits: hydratedOutfits,
+): Promise<SyncVaultOutcome> {
+  const primaryPasshash = await recoverPasshashFromIndexedDB();
+  if (!primaryPasshash) {
+    return {
+      vault: localVault,
+      synced: false,
+      pulledFromCloud: false,
+      pushedToCloud: false,
+      fingerprintBadge: null,
+      errorMessage: '尚未綁定雲端通行碼',
     };
   }
 
-  // Step 3: Merge local + remote safely
-  const merged = remoteVault ? mergeVaultStates(localVault, remoteVault) : localVault;
+  const candidateHashes = Array.from(
+    new Set<string>([primaryPasshash, ...getLinkedVariantHashes()])
+  );
 
-  // Step 4: Only push to cloud if merged state actually has user edits (> 1000)
+  const allChannels: DerivedSyncChannels[] = [];
+  for (const h of candidateHashes) {
+    const ch = await deriveSyncChannels(h);
+    if (ch) allChannels.push(ch);
+  }
+  const primaryChannels = allChannels[0];
+  if (!primaryChannels) {
+    return {
+      vault: localVault,
+      synced: false,
+      pulledFromCloud: false,
+      pushedToCloud: false,
+      fingerprintBadge: null,
+      errorMessage: '通行碼通道初始化失敗',
+    };
+  }
+
+  const allImgPrefixes = allChannels.map((c) => c.imgPrefix);
+
+  // Step 1: Pull from ALL candidate channels (both textdb.online & textdb.dev) in parallel
+  const pulledPerChannel = await Promise.all(
+    allChannels.map(async (ch) => ({
+      ch,
+      vaults: await readAllCloudVaultCandidates(ch.vaultKey),
+    }))
+  );
+
+  let combinedRemote: ClosetVaultState | null = null;
+  const activeRemoteChannels: DerivedSyncChannels[] = [primaryChannels];
+
+  for (const { ch, vaults } of pulledPerChannel) {
+    if (vaults.length > 0 && ch.vaultKey !== primaryChannels.vaultKey) {
+      activeRemoteChannels.push(ch);
+    }
+    for (const rawRemoteVault of vaults) {
+      const hydrated = await hydrateRemoteVaultPhotos(rawRemoteVault, localVault, allImgPrefixes);
+      combinedRemote = combinedRemote ? mergeVaultStates(combinedRemote, hydrated) : hydrated;
+    }
+  }
+
+  // Step 2: Merge local + remote safely
+  const merged = combinedRemote ? mergeVaultStates(localVault, combinedRemote) : localVault;
+
+  // Step 3: Determine if cloud needs to be updated
   const hasRealEdits =
     (merged.updatedAt || 1000) > 1000 ||
     Object.keys(merged.deletedItemIds || {}).length > 0 ||
-    Object.keys(merged.deletedOutfitIds || {}).length > 0;
+    Object.keys(merged.deletedOutfitIds || {}).length > 0 ||
+    Object.keys(merged.customSubCategories || {}).length > 0;
 
-  let pushedOk = false;
-  const shouldPush =
-    hasRealEdits &&
-    (forcePush || !remoteVault || (localVault.updatedAt || 1000) > (remoteVault.updatedAt || 1000));
+  const differsFromRemote =
+    !combinedRemote ||
+    (merged.updatedAt || 1000) > (combinedRemote.updatedAt || 1000) ||
+    vaultStateDigest(merged) !== vaultStateDigest(combinedRemote);
 
+  const shouldPush = hasRealEdits && (forcePush || differsFromRemote);
+
+  let pushedToCloud = false;
   if (shouldPush) {
-    // Upload each inline DataURL photo as its own shard so KV never overflows
-    await Promise.all(
-      merged.items
-        .filter((i) => i.imageUrl?.startsWith('data:image/'))
-        .map((i) => uploadDataUrlShard(channels.imgPrefix, `item_${i.id}`, i.imageUrl!))
-    );
-    await Promise.all(
-      merged.outfits
-        .filter((o) => o.selfieUrl?.startsWith('data:image/'))
-        .map((o) => uploadDataUrlShard(channels.imgPrefix, `outfit_${o.id}`, o.selfieUrl!))
-    );
-
-    const compactVaultForCloud: ClosetVaultState = {
-      ...merged,
-      items: merged.items.map((i) =>
-        i.imageUrl?.startsWith('data:image/')
-          ? { ...i, imageUrl: `${CLOUD_IMG_PREFIX}${i.id}` }
-          : i
-      ),
-      outfits: merged.outfits.map((o) =>
-        o.selfieUrl?.startsWith('data:image/')
-          ? { ...o, selfieUrl: `${CLOUD_IMG_PREFIX}${o.id}` }
-          : o
-      ),
-    };
-
-    const encoded = LZString.compressToEncodedURIComponent(
-      JSON.stringify(compactVaultForCloud)
-    );
-    pushedOk = await writeTextDb(channels.vaultKey, encoded);
-
-    // Also update compact read-only showcase snapshot (for < 120 char share link)
-    const shareKey = `bobocloset_share_v1_${channels.shareReadKey}`;
-    void writeTextDb(shareKey, encoded);
-
-    // Broadcast lightweight wakeup ping via ntfy.sh SSE (< 1s live refresh across tabs)
-    try {
-      await fetch(`${RELAY_BASE_URL}/${channels.relayTopic}`, {
-        method: 'POST',
-        body: JSON.stringify({ event: 'vault_updated', updatedAt: merged.updatedAt }),
-      });
-    } catch {
-      // ignore live relay network error; permanent KV is source of truth
-    }
+    pushedToCloud = await prepareAndPushCompactVault(merged, activeRemoteChannels);
   }
 
   saveLocalVault(merged);
-  return { vault: merged, synced: Boolean(remoteVault || pushedOk) };
+
+  if (shouldPush && !pushedToCloud) {
+    return {
+      vault: merged,
+      synced: false,
+      pulledFromCloud: Boolean(combinedRemote),
+      pushedToCloud: false,
+      fingerprintBadge: primaryChannels.fingerprintBadge,
+      errorMessage: '雲端網路暫時忙碌，修改已安全保存在本機雙重資料庫，稍後將自動重試同步！',
+    };
+  }
+
+  return {
+    vault: merged,
+    synced: Boolean(pushedToCloud || combinedRemote),
+    pulledFromCloud: Boolean(combinedRemote),
+    pushedToCloud,
+    fingerprintBadge: primaryChannels.fingerprintBadge,
+  };
 }
 
 /**

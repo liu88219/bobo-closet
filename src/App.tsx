@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BookHeart,
+  Eye,
+  EyeOff,
   KeyRound,
+  Lock,
   Plus,
   RefreshCw,
   Shirt,
@@ -19,12 +22,13 @@ import {
   exportVaultJsonFile,
   fetchSharedReadOnlyVault,
   getSavedPasshash,
-  hashOwnerPasscode,
+  loadFullLocalVaultState,
   loadLocalVault,
   mergeVaultStates,
   parseImportedVaultJson,
-  recoverVaultFromIndexedDB,
+  recoverPasshashFromIndexedDB,
   requestPersistentStorage,
+  resolveBestPasshashOnBind,
   saveLocalVault,
   savePasshash,
   subscribeToVaultLiveUpdates,
@@ -52,6 +56,10 @@ export const App: React.FC = () => {
   const [lockedItemIdForStylist, setLockedItemIdForStylist] = useState<string | null>(null);
 
   const [hasPasscode, setHasPasscode] = useState<boolean>(() => Boolean(getSavedPasshash()));
+  const [quickPassInput, setQuickPassInput] = useState('');
+  const [showQuickPass, setShowQuickPass] = useState(false);
+  const [fingerprintBadge, setFingerprintBadge] = useState<string | null>(null);
+  const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedText, setLastSyncedText] = useState<string>('本機雙重備份保護中');
@@ -60,6 +68,8 @@ export const App: React.FC = () => {
 
   const vaultRef = useRef(vault);
   vaultRef.current = vault;
+  const syncInFlightRef = useRef(false);
+  const pendingSyncRef = useRef<{ forcePush: boolean; showFeedback: boolean } | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -72,10 +82,12 @@ export const App: React.FC = () => {
     const channels = await deriveSyncChannels();
     if (!channels) {
       setShareUrl(null);
+      setFingerprintBadge(null);
       return;
     }
     const base = `${window.location.origin}${window.location.pathname}`;
     setShareUrl(`${base}?s=${channels.shareReadKey}`);
+    setFingerprintBadge(channels.fingerprintBadge);
   }, []);
 
   const triggerCloudSync = useCallback(
@@ -87,31 +99,72 @@ export const App: React.FC = () => {
         }
         return;
       }
+
+      if (syncInFlightRef.current) {
+        pendingSyncRef.current = {
+          forcePush: Boolean(pendingSyncRef.current?.forcePush || forcePush),
+          showFeedback: Boolean(pendingSyncRef.current?.showFeedback || showFeedback),
+        };
+        return;
+      }
+
+      syncInFlightRef.current = true;
       setIsSyncing(true);
       try {
-        const target = baseState || vaultRef.current;
-        const { vault: merged, synced } = await syncVaultWithCloud(target, forcePush);
-        setVault(merged);
-        const timeStr = new Date().toLocaleTimeString('zh-TW', {
-          hour: '2-digit',
-          minute: '2-digit',
+        const target = baseState
+          ? mergeVaultStates(vaultRef.current, baseState)
+          : vaultRef.current;
+        const outcome = await syncVaultWithCloud(target, forcePush);
+        setVault((prev) => {
+          const safeMerged = mergeVaultStates(prev, outcome.vault);
+          vaultRef.current = safeMerged;
+          saveLocalVault(safeMerged);
+          return safeMerged;
         });
-        setLastSyncedText(`已與永久雲端對齊 (${timeStr})`);
-        if (showFeedback) {
-          showToast(synced ? '🔄 已完成跨瀏覽器雲端同步！' : '✨ 目前已是最新雲端狀態');
+
+        if (outcome.errorMessage) {
+          if (forcePush) setHasUnsyncedChanges(true);
+          setLastSyncedText('待自動重試同步（已存本機保險箱）');
+          if (showFeedback) {
+            showToast(`⚠️ ${outcome.errorMessage}`);
+          }
+        } else {
+          setHasUnsyncedChanges(false);
+          const timeStr = new Date().toLocaleTimeString('zh-TW', {
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          setLastSyncedText(`已與永久雙雲端對齊 (${timeStr})`);
+          if (showFeedback) {
+            showToast(
+              outcome.synced ? '🔄 已完成跨瀏覽器雙雲端同步！' : '✨ 目前已是最新雲端狀態'
+            );
+          }
         }
       } catch {
+        if (forcePush) setHasUnsyncedChanges(true);
         if (showFeedback) {
           showToast('⚠️ 網路暫時離線，變更已安全保存在本機雙重資料庫');
         }
       } finally {
+        syncInFlightRef.current = false;
         setIsSyncing(false);
+
+        const nextPending = pendingSyncRef.current;
+        if (nextPending) {
+          pendingSyncRef.current = null;
+          void triggerCloudSync(
+            vaultRef.current,
+            nextPending.forcePush,
+            nextPending.showFeedback
+          );
+        }
       }
     },
     [isReadOnlyShareView, showToast]
   );
 
-  // Boot: persistent storage + IndexedDB recovery + ?s= share link OR initial cloud pull
+  // Boot: persistent storage + IndexedDB full photo recovery + passhash recovery + ?s= share link OR initial cloud pull
   useEffect(() => {
     void requestPersistentStorage();
 
@@ -128,46 +181,67 @@ export const App: React.FC = () => {
       return;
     }
 
+    let mounted = true;
     const init = async () => {
-      let current = loadLocalVault();
-      if (!current) {
-        const recovered = await recoverVaultFromIndexedDB();
-        if (recovered) {
-          current = recovered;
-          saveLocalVault(recovered);
-        } else {
-          current = createInitialVaultState();
-        }
-      }
-      setVault(current);
-
-      if (getSavedPasshash()) {
+      const [fullLocal, recoveredHash] = await Promise.all([
+        loadFullLocalVaultState(),
+        recoverPasshashFromIndexedDB(),
+      ]);
+      if (!mounted) return;
+      let mergedBoot = fullLocal;
+      setVault((prev) => {
+        mergedBoot = mergeVaultStates(prev, fullLocal);
+        vaultRef.current = mergedBoot;
+        return mergedBoot;
+      });
+      if (recoveredHash) {
+        setHasPasscode(true);
         await refreshShareUrl();
-        await triggerCloudSync(current, false, false);
+        await triggerCloudSync(mergedBoot, (mergedBoot.updatedAt || 1000) > 1000, false);
       }
     };
     void init();
+    return () => {
+      mounted = false;
+    };
   }, [refreshShareUrl, showToast, triggerCloudSync]);
 
-  // Foreground wakeup auto-sync (visibilitychange + window focus) for iPhone Safari <-> Home Screen PWA
+  // Foreground wakeup auto-sync (visibilitychange + window focus + online) for iPhone Safari <-> Home Screen PWA
   useEffect(() => {
     if (isReadOnlyShareView) return;
 
     const onWake = () => {
       if (document.visibilityState === 'visible' && getSavedPasshash()) {
-        void triggerCloudSync(undefined, false, false);
+        void triggerCloudSync(undefined, hasUnsyncedChanges, false);
+      }
+    };
+
+    const onOnline = () => {
+      if (getSavedPasshash()) {
+        void triggerCloudSync(undefined, true, false);
       }
     };
 
     document.addEventListener('visibilitychange', onWake);
     window.addEventListener('focus', onWake);
+    window.addEventListener('online', onOnline);
     return () => {
       document.removeEventListener('visibilitychange', onWake);
       window.removeEventListener('focus', onWake);
+      window.removeEventListener('online', onOnline);
     };
-  }, [isReadOnlyShareView, triggerCloudSync]);
+  }, [isReadOnlyShareView, hasUnsyncedChanges, triggerCloudSync]);
 
-  // Live SSE wakeup listener
+  // Automatic background retry when cloud push is pending
+  useEffect(() => {
+    if (!hasUnsyncedChanges || !hasPasscode || isReadOnlyShareView) return;
+    const timer = window.setInterval(() => {
+      void triggerCloudSync(vaultRef.current, true, false);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [hasUnsyncedChanges, hasPasscode, isReadOnlyShareView, triggerCloudSync]);
+
+  // Live SSE wakeup listener + 8s foreground auto-pull fallback (updates open Browser window even if SSE is blocked!)
   useEffect(() => {
     if (!hasPasscode || isReadOnlyShareView) return;
     let unsub: (() => void) | null = null;
@@ -181,9 +255,16 @@ export const App: React.FC = () => {
       }
     });
 
+    const pollTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void triggerCloudSync(undefined, false, false);
+      }
+    }, 8000);
+
     return () => {
       cancelled = true;
       unsub?.();
+      window.clearInterval(pollTimer);
     };
   }, [hasPasscode, isReadOnlyShareView, triggerCloudSync]);
 
@@ -197,6 +278,7 @@ export const App: React.FC = () => {
           ...nextRaw,
           updatedAt: Date.now(),
         };
+        vaultRef.current = next;
         saveLocalVault(next);
         if (getSavedPasshash()) {
           void triggerCloudSync(next, true, false);
@@ -453,27 +535,53 @@ export const App: React.FC = () => {
 
   // Passcode & Backup Handlers
   const handleBindPasscode = async (passcode: string) => {
-    const passhash = await hashOwnerPasscode(passcode);
-    savePasshash(passhash);
-    setHasPasscode(true);
-    await refreshShareUrl();
-    // Critical Rule 4: Pull & merge cloud FIRST before pushing!
-    const { vault: merged } = await syncVaultWithCloud(vaultRef.current, true);
-    setVault(merged);
-    const timeStr = new Date().toLocaleTimeString('zh-TW', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    setLastSyncedText(`已綁定通行碼並同步雲端 (${timeStr})`);
-    showToast('🔐 通行碼綁定成功！Safari 與主畫面 App 已互通');
+    const clean = passcode.trim();
+    if (!clean) return;
+    setIsSyncing(true);
+    try {
+      const passhash = await resolveBestPasshashOnBind(clean);
+      savePasshash(passhash);
+      setHasPasscode(true);
+      await refreshShareUrl();
+      // Critical Rule 4: Pull & merge cloud FIRST before pushing!
+      const outcome = await syncVaultWithCloud(vaultRef.current, true);
+      setVault((prev) => {
+        const safeMerged = mergeVaultStates(prev, outcome.vault);
+        vaultRef.current = safeMerged;
+        saveLocalVault(safeMerged);
+        return safeMerged;
+      });
+      if (outcome.errorMessage) {
+        setHasUnsyncedChanges(true);
+        setLastSyncedText('已綁定通行碼 · 待網路重試同步');
+        showToast(`⚠️ ${outcome.errorMessage}`);
+      } else {
+        setHasUnsyncedChanges(false);
+        const timeStr = new Date().toLocaleTimeString('zh-TW', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        setLastSyncedText(`已綁定通行碼並同步雙雲端 (${timeStr})`);
+        showToast('🔐 通行碼綁定成功！Safari 與主畫面 App 已互通 ✨');
+      }
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleDisconnectPasscode = () => {
     savePasshash(null);
     setHasPasscode(false);
     setShareUrl(null);
+    setFingerprintBadge(null);
+    setHasUnsyncedChanges(false);
     setLastSyncedText('本機雙重備份保護中（未綁定雲端通行碼）');
     showToast('已在此裝置解除雲端通行碼綁定');
+  };
+
+  const handleRestoreSnapshot = (snapVault: ClosetVaultState) => {
+    commitVaultUpdate((prev) => mergeVaultStates(prev, snapVault));
+    showToast('🛟 已無損合併救回本機歷史快照衣櫥！');
   };
 
   const handleImportJsonFile = async (file: File) => {
@@ -518,7 +626,9 @@ export const App: React.FC = () => {
               <p className="text-[11px] text-[#7D7063] truncate">
                 {isReadOnlyShareView
                   ? '👀 唯讀展示模式 · 點右上可回到自己的衣櫥'
-                  : `${activeItemsForStylist.length} 件衣服 · ${lastSyncedText}`}
+                  : `${activeItemsForStylist.length} 件衣服 · ${lastSyncedText}${
+                      fingerprintBadge ? ` · ${fingerprintBadge}` : ''
+                    }`}
               </p>
             </div>
           </div>
@@ -536,7 +646,7 @@ export const App: React.FC = () => {
               <>
                 <button
                   type="button"
-                  onClick={() => void triggerCloudSync(undefined, false, true)}
+                  onClick={() => void triggerCloudSync(undefined, true, true)}
                   disabled={isSyncing}
                   className="bobo-btn-soft inline-flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-[#FAF8F3] text-xs font-bold text-[#2D251E]"
                   title="立即與雲端同步最新衣櫥與穿搭"
@@ -546,7 +656,14 @@ export const App: React.FC = () => {
                       isSyncing ? 'animate-spin' : ''
                     }`}
                   />
-                  <span>雲端同步</span>
+                  <span>{hasUnsyncedChanges ? '待同步' : '雲端同步'}</span>
+                  {hasPasscode && (
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        hasUnsyncedChanges ? 'bg-[#D9822B]' : 'bg-[#5A9E54]'
+                      }`}
+                    />
+                  )}
                 </button>
 
                 <button
@@ -561,7 +678,7 @@ export const App: React.FC = () => {
                 >
                   <KeyRound className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">
-                    {hasPasscode ? '已綁定' : '通行碼 / 備份'}
+                    {hasPasscode ? fingerprintBadge || '已綁定' : '通行碼 / 備份'}
                   </span>
                 </button>
               </>
@@ -605,7 +722,52 @@ export const App: React.FC = () => {
       )}
 
       {/* Main Content Container */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-5">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-5 space-y-4">
+        {!hasPasscode && !isReadOnlyShareView && (
+          <div className="p-3.5 rounded-2xl bg-[#FFFDF9] border border-[#E7D6BE] shadow-sm space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-extrabold text-[#422B1D]">
+              <Lock className="w-3.5 h-3.5 text-[#BA7E4D]" />
+              <span>設定專屬通行碼：自動同步 Safari ↔ iPhone「加入主畫面」所有衣服與 3 視角照片</span>
+            </div>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showQuickPass ? 'text' : 'password'}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={quickPassInput}
+                  onChange={(e) => setQuickPassInput(e.target.value)}
+                  placeholder="輸入自訂通行碼解鎖／建立雙雲端自動同步"
+                  className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-[#E7D6BE] bg-[#FAF8F3] text-xs text-[#2D251E]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowQuickPass((s) => !s)}
+                  className="absolute right-2.5 top-1.5 text-[#7D7063]"
+                  title={showQuickPass ? '隱藏通行碼' : '顯示通行碼'}
+                >
+                  {showQuickPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={isSyncing || !quickPassInput.trim()}
+                onClick={() => {
+                  const val = quickPassInput.trim();
+                  if (val) {
+                    setQuickPassInput('');
+                    void handleBindPasscode(val);
+                  }
+                }}
+                className="bobo-btn px-3.5 py-1.5 rounded-xl bg-[#BA7E4D] text-[#FFFDF9] text-xs font-bold shrink-0"
+              >
+                啟用同步
+              </button>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'closet' && (
           <WardrobeGallery
             items={vault.items}
@@ -725,12 +887,17 @@ export const App: React.FC = () => {
         <SyncSettingsModal
           hasPasscode={hasPasscode}
           shareUrl={shareUrl}
+          fingerprintBadge={fingerprintBadge}
+          hasUnsyncedChanges={hasUnsyncedChanges}
+          isSyncing={isSyncing}
           lastSyncedText={lastSyncedText}
           onClose={() => setIsSyncModalOpen(false)}
           onBindPasscode={handleBindPasscode}
+          onForceSyncNow={() => triggerCloudSync(undefined, true, true)}
           onDisconnectPasscode={handleDisconnectPasscode}
           onExportJson={() => exportVaultJsonFile(vault)}
           onImportJsonFile={handleImportJsonFile}
+          onRestoreSnapshot={handleRestoreSnapshot}
         />
       )}
     </div>

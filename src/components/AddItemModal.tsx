@@ -241,6 +241,10 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
     const finalName =
       name.trim() || `${COLOR_TONE_META[colorTone].label}${resolvedSub}`;
     const now = Date.now();
+    const uploadedCustomPhoto = Boolean(imageUrl?.startsWith('data:image/'));
+    const keepInitialSampleAssets =
+      Boolean(initialItem && multiSplitCount === 0) &&
+      (!uploadedCustomPhoto || imageUrl === initialItem?.imageUrl);
     return {
       id:
         initialItem && multiSplitCount === 0
@@ -258,14 +262,9 @@ export const AddItemModal: React.FC<AddItemModalProps> = ({
       fitNote: fitNote.trim() || undefined,
       brand: brand.trim() || undefined,
       imageUrl,
-      flatlayUrl: initialItem && multiSplitCount === 0 ? initialItem.flatlayUrl : undefined,
-      realCropUrl:
-        imageUrl?.startsWith('data:image/')
-          ? imageUrl
-          : initialItem && multiSplitCount === 0
-          ? initialItem.realCropUrl
-          : undefined,
-      pastelUrl: initialItem && multiSplitCount === 0 ? initialItem.pastelUrl : undefined,
+      flatlayUrl: keepInitialSampleAssets ? initialItem?.flatlayUrl : undefined,
+      realCropUrl: keepInitialSampleAssets ? initialItem?.realCropUrl : undefined,
+      pastelUrl: keepInitialSampleAssets ? initialItem?.pastelUrl : undefined,
       isFavorite,
       inLaundry: initialItem?.inLaundry ?? false,
       rainFriendly,
